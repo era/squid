@@ -19,6 +19,7 @@ pub fn process_folder(input: &Path, output: &Path) -> Result<JoinSet<String>> {
         join_set.spawn(async move {
             let file = file.unwrap();
             let name = file.name;
+            let name = name.replace(".template", ".html");
             let output = eval(&file.contents, HashMap::default()).unwrap();
             let output_file = output_folder.join(&name);
             let mut file = File::create(output_file).await.unwrap();

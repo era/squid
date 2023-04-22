@@ -7,7 +7,6 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct LazyFolderReader {
     files: Vec<PathBuf>,
-
 }
 
 #[derive(Debug)]
@@ -78,9 +77,7 @@ impl LazyFolderReader {
             })
             .collect();
 
-        Ok(Self {
-            files,
-        })
+        Ok(Self { files })
     }
 }
 
@@ -90,8 +87,8 @@ impl<'a> IntoIterator for &'a LazyFolderReader {
 
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter {
-            reader: &self,
-            current_position: 0
+            reader: self,
+            current_position: 0,
         }
     }
 }
