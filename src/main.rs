@@ -1,7 +1,7 @@
 mod io;
 mod template;
 
-use crate::template::process_folder;
+use crate::template::Website;
 use clap::Parser;
 use std::path::Path;
 
@@ -25,7 +25,9 @@ async fn main() {
     let template_folder = Path::new(&args.template_folder);
     let output_folder = Path::new(&args.output_folder);
 
-    let mut files_processed = process_folder(template_folder, output_folder).unwrap();
+    let website = Website::new(template_folder.to_path_buf(), None);
+
+    let mut files_processed = website.build(output_folder).unwrap();
 
     while let Some(res) = files_processed.join_next().await {
         match res {

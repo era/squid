@@ -1,6 +1,7 @@
 use anyhow::Context;
 use anyhow::Result;
 use std::fs;
+use std::fs::ReadDir;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -66,18 +67,48 @@ impl Iterator for LazyFolderReader {
 }
 
 impl LazyFolderReader {
-    pub fn new(dir: &Path) -> Result<Self> {
+    pub fn new(dir: &Path, extension: &str) -> Result<Self> {
         let paths = fs::read_dir(dir).context("could not read the folder")?;
 
-        // TODO handle sub-directories
-        let files = paths
+        let files = Self::scan(paths, extension)?;
+
+        Ok(Self { files })
+    }
+
+    fn scan(paths: ReadDir, extension: &str) -> Result<Vec<PathBuf>> {
+        let paths: Vec<PathBuf> = paths
             .map(|path| {
                 let path = path.unwrap();
                 path.path()
             })
             .collect();
 
-        Ok(Self { files })
+        let mut files: Vec<PathBuf> = paths
+            .clone()
+            .into_iter()
+            .filter(|path| path.is_file())
+            .filter(|path| {
+                if let Some(e) = path.extension() {
+                    e.eq(extension)
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        let sub_directories: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .map(|dir| fs::read_dir(dir).context("could not read the folder"))
+            .filter(|r| r.is_ok())
+            .map(|dir| Self::scan(dir.unwrap(), extension))
+            .filter(|r| r.is_ok())
+            .flat_map(|r| r.unwrap())
+            .collect();
+
+        files.extend(sub_directories);
+
+        Ok(files)
     }
 }
 
@@ -97,16 +128,17 @@ impl<'a> IntoIterator for &'a LazyFolderReader {
 mod test {
     use super::*;
     use std::collections::HashSet;
+    use std::fs::create_dir;
     use std::fs::File;
     use std::hash::Hash;
     use std::io::Write;
     use tempdir::TempDir;
 
-    fn create_random_template_files(temp_dir: &TempDir, num_files: usize) -> Vec<PathBuf> {
+    fn create_random_template_files(temp_dir: &Path, num_files: usize) -> Vec<PathBuf> {
         let mut file_names = Vec::new();
 
         for i in 0..num_files {
-            let file_path = temp_dir.path().join(format!("file{}.template", i));
+            let file_path = temp_dir.join(format!("file{}.template", i));
             let mut file = File::create(&file_path).unwrap();
             write!(
                 file,
@@ -131,8 +163,8 @@ mod test {
     #[test]
     fn test_creates_reader_with_all_files() {
         let tempdir = TempDir::new("templates").unwrap();
-        let files = create_random_template_files(&tempdir, 10);
-        let reader = LazyFolderReader::new(tempdir.path()).unwrap();
+        let files = create_random_template_files(tempdir.path(), 10);
+        let reader = LazyFolderReader::new(tempdir.path(), "template").unwrap();
         assert!(iters_equal_any_order(
             files.into_iter(),
             reader.files.into_iter()
@@ -142,8 +174,8 @@ mod test {
     #[test]
     fn test_reader_into_iter() {
         let tempdir = TempDir::new("templates").unwrap();
-        create_random_template_files(&tempdir, 5);
-        let reader = LazyFolderReader::new(tempdir.path()).unwrap();
+        create_random_template_files(tempdir.path(), 5);
+        let reader = LazyFolderReader::new(tempdir.path(), "template").unwrap();
 
         assert_eq!(5, reader.files.len());
         let mut checks = 0;
@@ -158,8 +190,8 @@ mod test {
     #[test]
     fn test_reader_iter() {
         let tempdir = TempDir::new("templates").unwrap();
-        create_random_template_files(&tempdir, 5);
-        let reader = LazyFolderReader::new(tempdir.path()).unwrap();
+        create_random_template_files(tempdir.path(), 5);
+        let reader = LazyFolderReader::new(tempdir.path(), "template").unwrap();
 
         assert_eq!(5, reader.files.len());
         let mut checks = 0;
@@ -169,5 +201,25 @@ mod test {
             checks += 1;
         }
         assert_eq!(5, checks);
+    }
+
+    #[test]
+    fn test_reader_sub_dirs_iter() {
+        let tempdir = TempDir::new("templates").unwrap();
+        create_random_template_files(tempdir.path(), 5);
+        let subdir = tempdir.path().join("subdir");
+        create_dir(&subdir).unwrap();
+        create_random_template_files(&subdir, 5);
+        let reader = LazyFolderReader::new(tempdir.path(), "template").unwrap();
+
+        // it should contain the 5 files on the main folder and the 5 in the subfolder
+        assert_eq!(10, reader.files.len());
+        let mut checks = 0;
+        for file in reader {
+            let file = file.unwrap();
+            assert_eq!(format!("This is file {}.", file.name), file.contents);
+            checks += 1;
+        }
+        assert_eq!(10, checks);
     }
 }
