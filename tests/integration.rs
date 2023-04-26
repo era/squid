@@ -31,6 +31,8 @@ fn test_creates_basic_output() {
         .arg("tests/templates")
         .arg("--output-folder")
         .arg(tempdir.path())
+        .arg("--configuration")
+        .arg("tests/config.toml")
         .assert()
         .success();
 
