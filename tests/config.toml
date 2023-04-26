@@ -1,0 +1,4 @@
+website_name = "my website"
+uri = "https://my_website.com"
+[custom_keys]
+author = "Era"
