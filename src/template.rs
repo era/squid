@@ -45,13 +45,19 @@ impl Website {
         }
     }
 
-    pub fn build(&self, output: &Path) -> Result<JoinSet<String>> {
-        let lazy_folder_reader = io::LazyFolderReader::new(&self.template_folder, "template")
+    pub async fn build(&self, output: &Path) -> Result<JoinSet<String>> {
+        let mut lazy_folder_reader = io::LazyFolderReader::new(&self.template_folder, "template")
             .context("could not create lazy folder reader")?;
+
+        // should first process all posts/collections of markdown files
 
 
         let mut join_set = JoinSet::new();
-        for file in lazy_folder_reader {
+        while let Some(file) = lazy_folder_reader.async_next().await {
+
+            // should handle _name.template differently
+            // if there is a collection called "name" should create one file for each item in it
+            // otherwise should skip it (could be a partial)
             let output_folder = output.to_path_buf();
 
             let configuration = self.configuration.clone();

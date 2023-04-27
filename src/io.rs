@@ -4,6 +4,7 @@ use std::fs;
 use std::fs::ReadDir;
 use std::path::Path;
 use std::path::PathBuf;
+use tokio::fs::read_to_string;
 
 #[derive(Debug)]
 pub struct LazyFolderReader {
@@ -73,6 +74,25 @@ impl LazyFolderReader {
         let files = Self::scan(paths, extension)?;
 
         Ok(Self { files })
+    }
+
+    pub async fn async_next (&mut self)  -> Option<Result<TemplateFile>> {
+        if self.files.is_empty() {
+            return None;
+        }
+
+        let current = self.files.pop().unwrap();
+
+        let contents = match read_to_string(&current).await {
+            Ok(contents) => contents,
+            Err(e) => return Some(Err(e).context("could not read file")),
+        };
+
+        Some(Ok(TemplateFile {
+            name: current.file_name()?.to_str()?.to_string(),
+            contents,
+        }))
+
     }
 
     fn scan(paths: ReadDir, extension: &str) -> Result<Vec<PathBuf>> {

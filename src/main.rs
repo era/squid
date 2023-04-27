@@ -36,7 +36,7 @@ async fn main() {
 
     let website = Website::new(config, template_folder.to_path_buf(), None);
 
-    let mut files_processed = website.build(output_folder).unwrap();
+    let mut files_processed = website.build(output_folder).await.unwrap();
 
     let mut failed = false;
 
