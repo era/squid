@@ -1,0 +1,10 @@
+<html>
+    <head>
+        <title>{{ website_name }} - {{ uri }}</title>
+    </head>
+    <body>
+        <h1>{{ posts_title }}</h1>
+        <br />
+        {{ posts_content }}
+    </body>
+</html>

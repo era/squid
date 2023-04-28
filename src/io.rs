@@ -1,20 +1,40 @@
-use anyhow::Context;
 use anyhow::Result;
+use anyhow::{anyhow, Context};
 use std::fs;
 use std::fs::ReadDir;
 use std::path::Path;
 use std::path::PathBuf;
-use tokio::fs::read_to_string;
 
 #[derive(Debug)]
 pub struct LazyFolderReader {
     files: Vec<PathBuf>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TemplateFile {
     pub name: String,
     pub contents: String,
+    pub path: PathBuf,
+}
+
+impl TemplateFile {
+    fn new(path: &PathBuf) -> Result<Self> {
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(e) => return Err(e).context("could not read file"),
+        };
+
+        Ok(TemplateFile {
+            name: path
+                .file_name()
+                .ok_or(anyhow!("could not get the file name"))?
+                .to_str()
+                .ok_or(anyhow!("could not transform file name into str"))?
+                .to_string(),
+            contents,
+            path: path.to_path_buf(),
+        })
+    }
 }
 
 pub struct LazyFolderReaderIterator<'a> {
@@ -33,15 +53,7 @@ impl Iterator for LazyFolderReaderIterator<'_> {
         let name = self.reader.files.get(self.current_position)?;
         self.current_position += 1;
 
-        let contents = match fs::read_to_string(name) {
-            Ok(contents) => contents,
-            Err(e) => return Some(Err(e).context("could not read file")),
-        };
-
-        Some(Ok(TemplateFile {
-            name: name.file_name()?.to_str()?.to_string(),
-            contents,
-        }))
+        Some(TemplateFile::new(name))
     }
 }
 
@@ -54,16 +66,7 @@ impl Iterator for LazyFolderReader {
         }
 
         let current = self.files.pop().unwrap();
-
-        let contents = match fs::read_to_string(&current) {
-            Ok(contents) => contents,
-            Err(e) => return Some(Err(e).context("could not read file")),
-        };
-
-        Some(Ok(TemplateFile {
-            name: current.file_name()?.to_str()?.to_string(),
-            contents,
-        }))
+        Some(TemplateFile::new(&current))
     }
 }
 
@@ -76,23 +79,13 @@ impl LazyFolderReader {
         Ok(Self { files })
     }
 
-    pub async fn async_next (&mut self)  -> Option<Result<TemplateFile>> {
+    pub async fn async_next(&mut self) -> Option<Result<TemplateFile>> {
         if self.files.is_empty() {
             return None;
         }
 
         let current = self.files.pop().unwrap();
-
-        let contents = match read_to_string(&current).await {
-            Ok(contents) => contents,
-            Err(e) => return Some(Err(e).context("could not read file")),
-        };
-
-        Some(Ok(TemplateFile {
-            name: current.file_name()?.to_str()?.to_string(),
-            contents,
-        }))
-
+        Some(TemplateFile::new(&current))
     }
 
     fn scan(paths: ReadDir, extension: &str) -> Result<Vec<PathBuf>> {

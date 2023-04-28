@@ -1,7 +1,7 @@
 use assert_cmd::prelude::*;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempdir::TempDir;
 
@@ -15,6 +15,13 @@ fn read_folder_contents(folder_path: &Path) -> HashMap<String, String> {
             let file_name = path.file_name().unwrap().to_str().unwrap().to_owned();
             let file_contents = fs::read_to_string(path).unwrap();
             contents.insert(file_name, file_contents);
+        } else if path.is_dir() {
+            let sub_folder_name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            let sub_folder_contents = read_folder_contents(&path);
+            for (file_name, file_contents) in sub_folder_contents {
+                let prefixed_file_name = format!("{}/{}", sub_folder_name, file_name);
+                contents.insert(prefixed_file_name, file_contents);
+            }
         }
     }
 
@@ -31,6 +38,8 @@ fn test_creates_basic_output() {
         .arg("tests/templates")
         .arg("--output-folder")
         .arg(tempdir.path())
+        .arg("--markdown-folder")
+        .arg("tests/markdown")
         .arg("--configuration")
         .arg("tests/config.toml")
         .assert()
@@ -40,8 +49,11 @@ fn test_creates_basic_output() {
     let expected = read_folder_contents(&Path::new("tests/output/"));
 
     assert!(!created.is_empty());
-
     for (key, value) in created {
-        assert_eq!(expected.get(&key).unwrap(), &value);
+        let expected_content = match expected.get(&key) {
+            Some(t) => t,
+            None => panic!("we were not expecting {key}"),
+        };
+        assert_eq!(expected_content, &value);
     }
 }

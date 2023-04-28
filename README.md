@@ -4,6 +4,8 @@ Squid is a static website generator written in Rust that uses the template langu
 
 The project is still under development, no feature is ready.
 
+![](squid.jpg)
+
 ## TinyLang
 
 TinyLang is a lightweight template language that is easy to learn and use. It was designed specifically for Squid,
@@ -38,3 +40,5 @@ If you want to contribute to the project, you can fork the repository and make y
 ## License
 
 Squid is licensed under the MIT license. See the `LICENSE` file for more information.
+
+<a href="https://www.freepik.com/free-vector/cute-octopus-eating-takoyaki-cartoon-vector-icon-illustration-animal-food-icon-concept-isolated-pr_26259239.htm#query=squid&position=2&from_view=keyword&track=robertav1_2_sidr">Image by catalyststuff</a> on Freepik

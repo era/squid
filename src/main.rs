@@ -1,12 +1,13 @@
-mod io;
-mod template;
 mod config;
+mod io;
+mod md;
+mod template;
 
+use crate::config::Configuration;
 use crate::template::Website;
 use clap::Parser;
 use std::path::Path;
 use std::process::exit;
-use crate::config::Configuration;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -15,7 +16,7 @@ struct Args {
     template_folder: String,
 
     #[arg(short, long)]
-    partials_folder: Option<String>,
+    markdown_folder: Option<String>,
 
     #[arg(short, long)]
     configuration: Option<String>,
@@ -30,12 +31,12 @@ async fn main() {
 
     let template_folder = Path::new(&args.template_folder);
     let output_folder = Path::new(&args.output_folder);
-    let config = args.configuration.and_then(|f| {
-        Some(Configuration::from_toml(&f).unwrap())
-    });
+    let config = args
+        .configuration
+        .map(|f| Configuration::from_toml(&f).unwrap());
+    let markdown_folder = args.markdown_folder.map(|f| Path::new(&f).to_path_buf());
 
-    let website = Website::new(config, template_folder.to_path_buf(), None);
-
+    let website = Website::new(config, template_folder.to_path_buf(), markdown_folder);
     let mut files_processed = website.build(output_folder).await.unwrap();
 
     let mut failed = false;
