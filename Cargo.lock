@@ -776,7 +776,7 @@ dependencies = [
 [[package]]
 name = "tinylang"
 version = "0.1.0"
-source = "git+https://github.com/era/tinylang#e8d5a0e58b320a17372c527b502ed00efab5a4a5"
+source = "git+https://github.com/era/tinylang#9b92df0bff637c12d630b8e2e060768da4e7a1a6"
 dependencies = [
  "once_cell",
  "pest",

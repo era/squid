@@ -4,5 +4,6 @@
     </head>
     <body>
         {{ 1 + 2 + 3 }} - {{ author }}
+        {{ render('tests/templates/_partial.template') }}
     </body>
 </html>
