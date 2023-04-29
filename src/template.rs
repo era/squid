@@ -62,7 +62,7 @@ pub fn build_collection_state(collections: &HashMap<String, MarkdownCollection>)
 }
 
 /// Build the generic State that will be passed to all partials and templates
-/// this allow users to define speciall variables that they may want to use on their
+/// this allow users to define special variables that they may want to use on their
 /// template.
 fn build_state(config: Option<Configuration>) -> State {
     let mut state = HashMap::default();
