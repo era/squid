@@ -218,8 +218,7 @@ impl Website {
             let collection_name = collection_name
                 .file_name()
                 .unwrap()
-                .to_str()
-                .unwrap()
+                .to_string_lossy()
                 .to_string();
             let template = template.clone();
             let output_folder = output.to_path_buf();
