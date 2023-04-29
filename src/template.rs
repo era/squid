@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tinylang::eval;
-use tinylang::types::{FuncArguments, State, TinyLangTypes};
+use tinylang::types::{FuncArguments, State, TinyLangType};
 use tokio::fs::{create_dir, File};
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
@@ -22,7 +22,7 @@ pub struct Website {
     configuration: Option<Configuration>,
 }
 
-fn build_state(config: Option<Configuration>) -> HashMap<String, TinyLangTypes> {
+fn build_state(config: Option<Configuration>) -> State {
     let mut state = HashMap::default();
 
     if let Some(c) = config {
@@ -35,7 +35,7 @@ fn build_state(config: Option<Configuration>) -> HashMap<String, TinyLangTypes> 
 
     state.insert(
         "render".into(),
-        TinyLangTypes::Function(Arc::new(Box::new(render))),
+        TinyLangType::Function(Arc::new(Box::new(render))),
     );
     state
 }
@@ -208,23 +208,23 @@ impl Website {
 }
 
 /// exposes render as a function in the template itself.
-fn render(arguments: FuncArguments, state: &State) -> TinyLangTypes {
+fn render(arguments: FuncArguments, state: &State) -> TinyLangType {
     if arguments.is_empty() {
-        return TinyLangTypes::Nil;
+        return TinyLangType::Nil;
     }
 
     let page = match arguments.first().unwrap() {
-        TinyLangTypes::String(page) => page.as_str(),
-        _ => return TinyLangTypes::Nil,
+        TinyLangType::String(page) => page.as_str(),
+        _ => return TinyLangType::Nil,
     };
 
     let result = match fs::read_to_string(page) {
         Ok(c) => eval(&c, state.clone()),
-        Err(e) => return TinyLangTypes::String(e.to_string()),
+        Err(e) => return TinyLangType::String(e.to_string()),
     };
 
     match result {
-        Ok(content) => TinyLangTypes::String(content),
-        Err(e) => TinyLangTypes::String(e.to_string()),
+        Ok(content) => TinyLangType::String(content),
+        Err(e) => TinyLangType::String(e.to_string()),
     }
 }
