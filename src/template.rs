@@ -24,7 +24,7 @@ pub struct Website {
 
 /// We need to transform all the information we build about the collections to the
 /// template State, so that users can use them. For example, listing all the markdown
-/// posts and linking to them.
+/// posts and linking to them. TODO: Tests
 pub fn build_collection_state(collections: &HashMap<String, MarkdownCollection>) -> State {
     let mut state = State::new();
 
@@ -61,6 +61,9 @@ pub fn build_collection_state(collections: &HashMap<String, MarkdownCollection>)
     state
 }
 
+/// Build the generic State that will be passed to all partials and templates
+/// this allow users to define speciall variables that they may want to use on their
+/// template.
 fn build_state(config: Option<Configuration>) -> State {
     let mut state = HashMap::default();
 
