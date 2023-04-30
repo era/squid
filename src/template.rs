@@ -49,7 +49,7 @@ pub fn build_collection_state(collections: &HashMap<String, MarkdownCollection>)
                     collection.relative_path.to_string_lossy(),
                     item.name
                 )
-                    .into(),
+                .into(),
             );
             items_state.push(TinyLangType::Object(item_state));
         }
@@ -75,10 +75,7 @@ fn build_state(config: Option<Configuration>) -> State {
         }
     }
 
-    state.insert(
-        "render".into(),
-        TinyLangType::Function(Arc::new(Box::new(render))),
-    );
+    state.insert("render".into(), TinyLangType::Function(Arc::new(render)));
     state
 }
 
@@ -141,8 +138,11 @@ impl Website {
 
         let collections = self.build_markdown().await?;
 
+        let state = Arc::new(self.build_state(&collections));
+
         let mut join_set = JoinSet::new();
         while let Some(file) = template_folder_reader.async_next().await {
+            let state = state.clone();
             let output_folder = output.to_path_buf();
 
             let file = file.unwrap();
@@ -156,18 +156,12 @@ impl Website {
                 // this is safe because we filtered based on the extension name ('.template')
                 let collection_name = &file.name[1..file.name.len() - 9];
                 if let Some(collection) = collections.get(collection_name) {
-                    self.build_collection(
-                        collections.clone(),
-                        collection.clone(),
-                        file,
-                        output,
-                        &mut join_set,
-                    );
+                    self.build_collection(state, collection.clone(), file, output, &mut join_set);
                 }
                 continue;
             }
 
-            self.build_template(collections.clone(), file, output_folder, &mut join_set);
+            self.build_template(state, file, output_folder, &mut join_set);
         }
 
         Ok(join_set)
@@ -176,19 +170,16 @@ impl Website {
     /// build a template without any markdown
     fn build_template(
         &self,
-        collections: HashMap<String, MarkdownCollection>,
+        state: Arc<State>,
         file: TemplateFile,
         output_folder: PathBuf,
         join_set: &mut JoinSet<String>,
     ) {
-        let configuration = self.configuration.clone();
         join_set.spawn(async move {
             let name = file.name.replace(".template", ".html");
             let output = {
-                let mut state = build_state(configuration);
-                // passes all the collections state as well so users can use it for
-                // things like pagination
-                state.extend(build_collection_state(&collections).into_iter());
+                let state = (*state).clone();
+
                 eval(&file.contents, state).unwrap()
             };
 
@@ -199,10 +190,19 @@ impl Website {
         });
     }
 
+    fn build_state(&self, collections: &HashMap<String, MarkdownCollection>) -> State {
+        let mut state = build_state(self.configuration.clone());
+        // passes all the collections state as well so users can use it for
+        // things like pagination
+        state.extend(build_collection_state(collections).into_iter());
+
+        state
+    }
+
     /// builds a collection of markdown files using the appropriate template
     fn build_collection(
         &self,
-        collections: HashMap<String, MarkdownCollection>,
+        state: Arc<State>,
         collection: MarkdownCollection,
         template: TemplateFile,
         output: &Path,
@@ -211,8 +211,7 @@ impl Website {
         // we need for each item in the collection
         // to evaluate the template using its header and content
         for item in collection.collection {
-            let collections = collections.clone();
-            let configuration = self.configuration.clone();
+            let state = state.clone();
             let collection_name = collection.relative_path.clone();
 
             let collection_name = collection_name
@@ -225,7 +224,7 @@ impl Website {
 
             join_set.spawn(async move {
                 let html = {
-                    let mut state = build_state(configuration);
+                    let mut state = (*state).clone();
 
                     // we need to add the header of the markdown file to our state
                     // so templates can use it
@@ -237,9 +236,6 @@ impl Website {
                         item.html_content.into(),
                     );
 
-                    // passes all the collections state as well so users can use it for
-                    // things like pagination
-                    state.extend(build_collection_state(&collections).into_iter());
                     eval(&template.contents, state).unwrap()
                 };
 
@@ -283,4 +279,3 @@ fn render(arguments: FuncArguments, state: &State) -> TinyLangType {
         Err(e) => TinyLangType::String(e.to_string()),
     }
 }
-

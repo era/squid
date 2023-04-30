@@ -1,5 +1,4 @@
 use anyhow::Result;
-use anyhow::{anyhow, Context};
 use gray_matter::engine::YAML;
 use gray_matter::Matter;
 use std::collections::HashMap;
