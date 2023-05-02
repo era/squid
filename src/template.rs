@@ -14,13 +14,13 @@ use tinylang::types::{FuncArguments, State, TinyLangType};
 use tokio::fs::create_dir;
 use tokio::task::JoinSet;
 
-struct InnerState {
+struct Builder {
     tinylang_state: Arc<State>,
     output_folder: PathBuf,
     eval_tasks: JoinSet<String>,
 }
 
-impl InnerState {
+impl Builder {
     fn new(state: State, output_folder: PathBuf) -> Self {
         Self {
             tinylang_state: Arc::new(state),
@@ -106,7 +106,6 @@ pub struct Website {
     template_folder: PathBuf,
     posts_folder: Option<PathBuf>,
     configuration: Option<Configuration>,
-    inner_state: Option<InnerState>,
 }
 
 impl Website {
@@ -119,7 +118,6 @@ impl Website {
             template_folder,
             posts_folder,
             configuration,
-            inner_state: None,
         }
     }
 
@@ -130,14 +128,11 @@ impl Website {
 
         let collections = self.build_markdown_collections().await?;
 
-        let inner_state = InnerState::new(self.build_state(&collections), output.to_path_buf());
+        let mut builder = Builder::new(self.build_state(&collections), output.to_path_buf());
 
-        self.inner_state = Some(inner_state);
-
-        //TODO move this to inner_state as well
+        //TODO move this to builder as well
         while let Some(file) = template_folder_reader.async_next().await {
             let file = file.unwrap();
-            let inner_state = self.inner_state.as_mut().unwrap();
 
             // should handle _name.template differently
             // if there is a collection called "name" should create one file for each item in it
@@ -148,17 +143,17 @@ impl Website {
                 // this is safe because we filtered based on the extension name ('.template')
                 let collection_name = &file.name[1..file.name.len() - 9];
                 if let Some(collection) = collections.get(collection_name) {
-                    inner_state
+                    builder
                         .eval_markdown_collection_to_output_file(collection.clone(), file)
                         .await;
                 }
                 continue;
             }
 
-            inner_state.eval_template_to_output_file(file);
+            builder.eval_template_to_output_file(file);
         }
 
-        Ok(self.inner_state.take().unwrap().eval_tasks)
+        Ok(builder.eval_tasks)
     }
 
     async fn build_markdown_collections(&self) -> Result<HashMap<String, MarkdownCollection>> {
