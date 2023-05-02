@@ -30,7 +30,7 @@ impl InnerState {
     }
 
     /// build a template without any markdown
-    fn build_template(&mut self, file: TemplateFile) {
+    fn eval_template_to_output_file(&mut self, file: TemplateFile) {
         let output_folder = self.output_folder.to_path_buf();
         let state = self.tinylang_state.clone();
 
@@ -66,7 +66,7 @@ impl InnerState {
     }
 
     /// builds a collection of markdown files using the appropriate template
-    async fn build_collection(&mut self, collection: MarkdownCollection, template: TemplateFile) {
+    async fn eval_markdown_collection_to_output_file(&mut self, collection: MarkdownCollection, template: TemplateFile) {
         let output_folder = self.mk_collection_dir(&collection).await;
 
         // we need for each item in the collection
@@ -124,7 +124,7 @@ impl Website {
             LazyFolderReader::new(&self.template_folder, "template")
                 .context("could not create lazy folder reader for template folder")?;
 
-        let collections = self.build_markdown().await?;
+        let collections = self.build_markdown_collections().await?;
 
         let inner_state = InnerState::new(self.build_state(&collections), output.to_path_buf());
 
@@ -143,18 +143,18 @@ impl Website {
                 // this is safe because we filtered based on the extension name ('.template')
                 let collection_name = &file.name[1..file.name.len() - 9];
                 if let Some(collection) = collections.get(collection_name) {
-                    inner_state.build_collection(collection.clone(), file).await;
+                    inner_state.eval_markdown_collection_to_output_file(collection.clone(), file).await;
                 }
                 continue;
             }
 
-            inner_state.build_template(file);
+            inner_state.eval_template_to_output_file(file);
         }
 
         Ok(self.inner_state.take().unwrap().parser_tasks)
     }
 
-    async fn build_markdown(&self) -> Result<HashMap<String, MarkdownCollection>> {
+    async fn build_markdown_collections(&self) -> Result<HashMap<String, MarkdownCollection>> {
         let mut collections = HashMap::new();
         let posts_folder = match &self.posts_folder {
             Some(p) => p,
