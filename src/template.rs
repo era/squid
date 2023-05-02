@@ -134,6 +134,7 @@ impl Website {
 
         self.inner_state = Some(inner_state);
 
+        //TODO move this to inner_state as well
         while let Some(file) = template_folder_reader.async_next().await {
             let file = file.unwrap();
             let inner_state = self.inner_state.as_mut().unwrap();
