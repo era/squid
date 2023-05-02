@@ -28,6 +28,74 @@ impl InnerState {
             parser_tasks: JoinSet::new(),
         }
     }
+
+    /// build a template without any markdown
+    fn build_template(&mut self, file: TemplateFile) {
+        let output_folder = self.output_folder.to_path_buf();
+        let state = self.tinylang_state.clone();
+
+        self.parser_tasks.spawn(async move {
+            let file_name = file.name.replace(".template", ".html");
+            let html = {
+                let state = (*state).clone();
+
+                eval(&file.contents, state).unwrap()
+            };
+
+            io::write_to_disk(output_folder, &file_name, html).await;
+
+            file_name
+        });
+    }
+
+    async fn mk_collection_dir(&mut self, collection: &MarkdownCollection) -> PathBuf {
+        let collection_name = collection.relative_path.clone();
+        let collection_name = collection_name
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        let output_folder = self.output_folder.to_path_buf();
+        let output_folder = output_folder.join(&collection_name);
+
+        if !output_folder.exists() {
+            create_dir(&output_folder).await.unwrap();
+        }
+        output_folder
+    }
+
+    /// builds a collection of markdown files using the appropriate template
+    async fn build_collection(&mut self, collection: MarkdownCollection, template: TemplateFile) {
+        let output_folder = self.mk_collection_dir(&collection).await;
+
+        // we need for each item in the collection
+        // to evaluate the template using its header and content
+        for item in collection.collection {
+            let output_folder = output_folder.clone();
+
+            let state = self.tinylang_state.clone();
+
+            let template = template.clone();
+
+            self.parser_tasks.spawn(async move {
+                let html = {
+                    let mut state = (*state).clone();
+
+                    state.insert("content".into(), item.as_tinylang_state().into());
+
+                    eval(&template.contents, state).unwrap()
+                };
+
+                // we need to save our file following the markdown file and not the template
+                let file_name = item.name.replace(".md", ".html");
+
+                io::write_to_disk(output_folder, &file_name, html).await;
+
+                file_name
+            });
+        }
+    }
 }
 
 pub struct Website {
@@ -64,6 +132,7 @@ impl Website {
 
         while let Some(file) = template_folder_reader.async_next().await {
             let file = file.unwrap();
+            let inner_state = self.inner_state.as_mut().unwrap();
 
             // should handle _name.template differently
             // if there is a collection called "name" should create one file for each item in it
@@ -74,12 +143,12 @@ impl Website {
                 // this is safe because we filtered based on the extension name ('.template')
                 let collection_name = &file.name[1..file.name.len() - 9];
                 if let Some(collection) = collections.get(collection_name) {
-                    self.build_collection(collection.clone(), file).await;
+                    inner_state.build_collection(collection.clone(), file).await;
                 }
                 continue;
             }
 
-            self.build_template(file);
+            inner_state.build_template(file);
         }
 
         Ok(self.inner_state.take().unwrap().parser_tasks)
@@ -149,31 +218,6 @@ impl Website {
             .replace("md", "html")
     }
 
-    /// build a template without any markdown
-    fn build_template(&mut self, file: TemplateFile) {
-        let inner_state = self.inner_state.as_ref().unwrap();
-
-        let output_folder = inner_state.output_folder.to_path_buf();
-        let state = inner_state.tinylang_state.clone();
-
-        self.inner_state
-            .as_mut()
-            .unwrap()
-            .parser_tasks
-            .spawn(async move {
-                let file_name = file.name.replace(".template", ".html");
-                let html = {
-                    let state = (*state).clone();
-
-                    eval(&file.contents, state).unwrap()
-                };
-
-                io::write_to_disk(output_folder, &file_name, html).await;
-
-                file_name
-            });
-    }
-
     /// We need to transform all the information we build about the collections to the
     /// template State, so that users can use them. For example, listing all the markdown
     /// posts and linking to them.
@@ -214,65 +258,6 @@ impl Website {
         state.extend(self.build_collection_state(collections).into_iter());
 
         state
-    }
-
-    /// builds a collection of markdown files using the appropriate template
-    async fn build_collection(&mut self, collection: MarkdownCollection, template: TemplateFile) {
-        let output_folder = self.mk_collection_dir(&collection).await;
-
-        // we need for each item in the collection
-        // to evaluate the template using its header and content
-        for item in collection.collection {
-            let inner_state = self.inner_state.as_ref().unwrap();
-            let output_folder = output_folder.clone();
-
-            let state = inner_state.tinylang_state.clone();
-
-            let template = template.clone();
-
-            self.inner_state
-                .as_mut()
-                .unwrap()
-                .parser_tasks
-                .spawn(async move {
-                    let html = {
-                        let mut state = (*state).clone();
-
-                        state.insert("content".into(), item.as_tinylang_state().into());
-
-                        eval(&template.contents, state).unwrap()
-                    };
-
-                    // we need to save our file following the markdown file and not the template
-                    let file_name = item.name.replace(".md", ".html");
-
-                    io::write_to_disk(output_folder, &file_name, html).await;
-
-                    file_name
-                });
-        }
-    }
-
-    async fn mk_collection_dir(&mut self, collection: &MarkdownCollection) -> PathBuf {
-        let collection_name = collection.relative_path.clone();
-        let collection_name = collection_name
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-
-        let output_folder = self
-            .inner_state
-            .as_ref()
-            .unwrap()
-            .output_folder
-            .to_path_buf();
-        let output_folder = output_folder.join(&collection_name);
-
-        if !output_folder.exists() {
-            create_dir(&output_folder).await.unwrap();
-        }
-        output_folder
     }
 }
 
