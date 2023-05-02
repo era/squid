@@ -17,7 +17,7 @@ use tokio::task::JoinSet;
 struct InnerState {
     tinylang_state: Arc<State>,
     output_folder: PathBuf,
-    parser_tasks: JoinSet<String>,
+    eval_tasks: JoinSet<String>,
 }
 
 impl InnerState {
@@ -25,7 +25,7 @@ impl InnerState {
         Self {
             tinylang_state: Arc::new(state),
             output_folder,
-            parser_tasks: JoinSet::new(),
+            eval_tasks: JoinSet::new(),
         }
     }
 
@@ -34,7 +34,7 @@ impl InnerState {
         let output_folder = self.output_folder.to_path_buf();
         let state = self.tinylang_state.clone();
 
-        self.parser_tasks.spawn(async move {
+        self.eval_tasks.spawn(async move {
             let file_name = file.name.replace(".template", ".html");
             let html = {
                 let state = (*state).clone();
@@ -66,7 +66,11 @@ impl InnerState {
     }
 
     /// builds a collection of markdown files using the appropriate template
-    async fn eval_markdown_collection_to_output_file(&mut self, collection: MarkdownCollection, template: TemplateFile) {
+    async fn eval_markdown_collection_to_output_file(
+        &mut self,
+        collection: MarkdownCollection,
+        template: TemplateFile,
+    ) {
         let output_folder = self.mk_collection_dir(&collection).await;
 
         // we need for each item in the collection
@@ -78,7 +82,7 @@ impl InnerState {
 
             let template = template.clone();
 
-            self.parser_tasks.spawn(async move {
+            self.eval_tasks.spawn(async move {
                 let html = {
                     let mut state = (*state).clone();
 
@@ -143,7 +147,9 @@ impl Website {
                 // this is safe because we filtered based on the extension name ('.template')
                 let collection_name = &file.name[1..file.name.len() - 9];
                 if let Some(collection) = collections.get(collection_name) {
-                    inner_state.eval_markdown_collection_to_output_file(collection.clone(), file).await;
+                    inner_state
+                        .eval_markdown_collection_to_output_file(collection.clone(), file)
+                        .await;
                 }
                 continue;
             }
@@ -151,7 +157,7 @@ impl Website {
             inner_state.eval_template_to_output_file(file);
         }
 
-        Ok(self.inner_state.take().unwrap().parser_tasks)
+        Ok(self.inner_state.take().unwrap().eval_tasks)
     }
 
     async fn build_markdown_collections(&self) -> Result<HashMap<String, MarkdownCollection>> {
