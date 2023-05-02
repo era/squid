@@ -2,7 +2,7 @@
 
 Squid is a static website generator written in Rust that uses the template language "TinyLang".
 
-The project is still under development, no feature is ready.
+The project is still under development.
 
 ## TinyLang
 
@@ -24,10 +24,13 @@ cargo build --release
 Once the project is built, you can run it using the following command:
 
 ```sh
-./target/release/squid --template_folder templates --output--folder content
+./target/release/squid --template_folder templates --markdown-folder my_posts --configuration config.toml --output--folder content
 ```
 
 This will generate a new website in the `output` directory using the templates and content from the `templates` and `content` directories.
+
+If you want to see an usage example, check the `tests/integration.rs`. The templates are at `tests/templates` and the expected
+output is in `tests/output`.
 
 ## Contributing
 

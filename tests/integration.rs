@@ -52,7 +52,10 @@ fn test_creates_basic_output() {
     for (key, value) in created {
         let expected_content = match expected.get(&key) {
             Some(t) => t,
-            None => panic!("we were not expecting {key}"),
+            None => {
+                println!("{value}");
+                panic!("we were not expecting {key}");
+            }
         };
         assert_eq!(expected_content, &value);
     }

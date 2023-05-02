@@ -3,8 +3,8 @@
         <title>{{ website_name }} - {{ uri }}</title>
     </head>
     <body>
-        <h1>{{ posts_title }}</h1>
+        <h1>{{ content.title }}</h1>
         <br />
-        {{ posts_content }}
+        {{ content.content }}
     </body>
 </html>

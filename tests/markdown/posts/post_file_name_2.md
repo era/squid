@@ -1,5 +1,5 @@
 ---
-title: This is such a nice title
+title: This is such a nice title 2
 ---
 # This is my content
 

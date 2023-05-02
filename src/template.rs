@@ -15,68 +15,27 @@ use tokio::fs::{create_dir, File};
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
 
-#[derive(Debug, Clone)]
+struct InnerState {
+    tinylang_state: Arc<State>,
+    output_folder: PathBuf,
+    parser_tasks: JoinSet<String>,
+}
+
+impl InnerState {
+    fn new(state: State, output_folder: PathBuf) -> Self {
+        Self {
+            tinylang_state: Arc::new(state),
+            output_folder,
+            parser_tasks: JoinSet::new(),
+        }
+    }
+}
+
 pub struct Website {
     template_folder: PathBuf,
     posts_folder: Option<PathBuf>,
     configuration: Option<Configuration>,
-}
-
-/// We need to transform all the information we build about the collections to the
-/// template State, so that users can use them. For example, listing all the markdown
-/// posts and linking to them. TODO: Tests
-pub fn build_collection_state(collections: &HashMap<String, MarkdownCollection>) -> State {
-    let mut state = State::new();
-
-    for (key, collection) in collections {
-        let mut collection_state = State::new();
-        collection_state.insert(
-            "size".to_string(),
-            TinyLangType::Numeric(collection.collection.len() as f64),
-        );
-
-        let mut items_state = Vec::new();
-
-        for item in &collection.collection {
-            let mut item_state = State::new();
-            for (header_key, header_value) in &item.header {
-                item_state.insert(header_key.clone(), header_value.clone().into());
-            }
-            item_state.insert(
-                "partial_uri".to_string(),
-                format!(
-                    "{}/{}.html",
-                    collection.relative_path.to_string_lossy(),
-                    item.name
-                )
-                .into(),
-            );
-            items_state.push(TinyLangType::Object(item_state));
-        }
-
-        collection_state.insert("items".into(), TinyLangType::Vec(Arc::new(items_state)));
-
-        state.insert(key.clone(), collection_state.into());
-    }
-    state
-}
-
-/// Build the generic State that will be passed to all partials and templates
-/// this allow users to define special variables that they may want to use on their
-/// template.
-fn build_state(config: Option<Configuration>) -> State {
-    let mut state = HashMap::default();
-
-    if let Some(c) = config {
-        state.insert("website_name".into(), c.website_name.into());
-        state.insert("uri".into(), c.uri.into());
-        for (key, value) in c.custom_keys {
-            state.insert(key, value.into());
-        }
-    }
-
-    state.insert("render".into(), TinyLangType::Function(Arc::new(render)));
-    state
+    inner_state: Option<InnerState>,
 }
 
 impl Website {
@@ -89,7 +48,42 @@ impl Website {
             template_folder,
             posts_folder,
             configuration,
+            inner_state: None,
         }
+    }
+
+    pub async fn build(&mut self, output: &Path) -> Result<JoinSet<String>> {
+        let mut template_folder_reader =
+            LazyFolderReader::new(&self.template_folder, "template")
+                .context("could not create lazy folder reader for template folder")?;
+
+        let collections = self.build_markdown().await?;
+
+        let inner_state = InnerState::new(self.build_state(&collections), output.to_path_buf());
+
+        self.inner_state = Some(inner_state);
+
+        while let Some(file) = template_folder_reader.async_next().await {
+            let file = file.unwrap();
+
+            // should handle _name.template differently
+            // if there is a collection called "name" should create one file for each item in it
+            // otherwise should skip it (could be a partial)
+            if file.name.starts_with('_') {
+                // removing the first _
+                // and the .template from the end
+                // this is safe because we filtered based on the extension name ('.template')
+                let collection_name = &file.name[1..file.name.len() - 9];
+                if let Some(collection) = collections.get(collection_name) {
+                    self.build_collection(collection.clone(), file).await;
+                }
+                continue;
+            }
+
+            self.build_template(file);
+        }
+
+        Ok(self.inner_state.take().unwrap().parser_tasks)
     }
 
     async fn build_markdown(&self) -> Result<HashMap<String, MarkdownCollection>> {
@@ -98,8 +92,10 @@ impl Website {
             Some(p) => p,
             None => return Ok(collections),
         };
+
         let mut markdown_folder_reader = io::LazyFolderReader::new(posts_folder, "md")
             .context("could not create lazy folder reader for markdown folder")?;
+
         while let Some(file) = markdown_folder_reader.async_next().await {
             let file = match file {
                 Ok(f) => f,
@@ -109,7 +105,26 @@ impl Website {
                     continue;
                 }
             };
-            let markdown_content = match MarkdownDocument::new(&file.contents, file.name) {
+
+            let partial_uri = file
+                .path
+                .to_string_lossy()
+                // we leave only the relative path after the `posts_folder` to avoid
+                // creating a url with a local path (e.g. $HOME/my_site/posts)
+                .replace(
+                    self.posts_folder
+                        .as_ref()
+                        .unwrap()
+                        .to_string_lossy()
+                        .as_ref(),
+                    "",
+                );
+
+            let markdown_content = match MarkdownDocument::new(
+                &file.contents,
+                file.name,
+                partial_uri.replace("md", "html").into(),
+            ) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("{}", e);
@@ -131,87 +146,83 @@ impl Website {
         Ok(collections)
     }
 
-    pub async fn build(&self, output: &Path) -> Result<JoinSet<String>> {
-        let mut template_folder_reader =
-            LazyFolderReader::new(&self.template_folder, "template")
-                .context("could not create lazy folder reader for template folder")?;
+    /// build a template without any markdown
+    fn build_template(&mut self, file: TemplateFile) {
+        let inner_state = self.inner_state.as_ref().unwrap();
 
-        let collections = self.build_markdown().await?;
+        let output_folder = inner_state.output_folder.to_path_buf();
+        let state = inner_state.tinylang_state.clone();
+        
+        self.inner_state
+            .as_mut()
+            .unwrap()
+            .parser_tasks
+            .spawn(async move {
+                let name = file.name.replace(".template", ".html");
+                let output = {
+                    let state = (*state).clone();
 
-        let state = Arc::new(self.build_state(&collections));
+                    eval(&file.contents, state).unwrap()
+                };
 
-        let mut join_set = JoinSet::new();
-        while let Some(file) = template_folder_reader.async_next().await {
-            let state = state.clone();
-            let output_folder = output.to_path_buf();
-
-            let file = file.unwrap();
-
-            // should handle _name.template differently
-            // if there is a collection called "name" should create one file for each item in it
-            // otherwise should skip it (could be a partial)
-            if file.name.starts_with('_') {
-                // removing the first _
-                // and the .template from the end
-                // this is safe because we filtered based on the extension name ('.template')
-                let collection_name = &file.name[1..file.name.len() - 9];
-                if let Some(collection) = collections.get(collection_name) {
-                    self.build_collection(state, collection.clone(), file, output, &mut join_set);
-                }
-                continue;
-            }
-
-            self.build_template(state, file, output_folder, &mut join_set);
-        }
-
-        Ok(join_set)
+                let output_file = output_folder.join(&name);
+                let mut file = File::create(output_file).await.unwrap();
+                file.write_all(output.as_bytes()).await.unwrap();
+                name
+            });
     }
 
-    /// build a template without any markdown
-    fn build_template(
+    /// We need to transform all the information we build about the collections to the
+    /// template State, so that users can use them. For example, listing all the markdown
+    /// posts and linking to them.
+    pub fn build_collection_state(
         &self,
-        state: Arc<State>,
-        file: TemplateFile,
-        output_folder: PathBuf,
-        join_set: &mut JoinSet<String>,
-    ) {
-        join_set.spawn(async move {
-            let name = file.name.replace(".template", ".html");
-            let output = {
-                let state = (*state).clone();
+        collections: &HashMap<String, MarkdownCollection>,
+    ) -> State {
+        let mut state = State::new();
 
-                eval(&file.contents, state).unwrap()
-            };
+        for (key, collection) in collections {
+            state.insert(key.clone(), collection.as_tinylang_state().into());
+        }
+        state
+    }
 
-            let output_file = output_folder.join(&name);
-            let mut file = File::create(output_file).await.unwrap();
-            file.write_all(output.as_bytes()).await.unwrap();
-            name
-        });
+    /// Build the generic State that will be passed to all partials and templates
+    /// this allow users to define special variables that they may want to use on their
+    /// template.
+    fn build_default_state(&self) -> State {
+        let mut state = HashMap::default();
+
+        if let Some(c) = self.configuration.as_ref() {
+            state.insert("website_name".into(), c.website_name.clone().into());
+            state.insert("uri".into(), c.uri.clone().into());
+            for (key, value) in &c.custom_keys {
+                state.insert(key.clone(), value.clone().into());
+            }
+        }
+
+        state.insert("render".into(), TinyLangType::Function(Arc::new(render)));
+        state
     }
 
     fn build_state(&self, collections: &HashMap<String, MarkdownCollection>) -> State {
-        let mut state = build_state(self.configuration.clone());
+        let mut state = self.build_default_state();
         // passes all the collections state as well so users can use it for
         // things like pagination
-        state.extend(build_collection_state(collections).into_iter());
+        state.extend(self.build_collection_state(collections).into_iter());
 
         state
     }
 
     /// builds a collection of markdown files using the appropriate template
-    fn build_collection(
-        &self,
-        state: Arc<State>,
-        collection: MarkdownCollection,
-        template: TemplateFile,
-        output: &Path,
-        join_set: &mut JoinSet<String>,
-    ) {
+    async fn build_collection(&mut self, collection: MarkdownCollection, template: TemplateFile) {
         // we need for each item in the collection
         // to evaluate the template using its header and content
         for item in collection.collection {
-            let state = state.clone();
+            let inner_state = self.inner_state.as_ref().unwrap();
+
+            let output_folder = inner_state.output_folder.to_path_buf();
+            let state = inner_state.tinylang_state.clone();
             let collection_name = collection.relative_path.clone();
 
             let collection_name = collection_name
@@ -220,40 +231,34 @@ impl Website {
                 .to_string_lossy()
                 .to_string();
             let template = template.clone();
-            let output_folder = output.to_path_buf();
 
-            join_set.spawn(async move {
-                let html = {
-                    let mut state = (*state).clone();
+            let output_folder = output_folder.join(&collection_name);
 
-                    // we need to add the header of the markdown file to our state
-                    // so templates can use it
-                    for (key, value) in &item.header {
-                        state.insert(format!("{collection_name}_{key}"), value.to_string().into());
-                    }
-                    state.insert(
-                        format!("{collection_name}_content"),
-                        item.html_content.into(),
-                    );
+            if !output_folder.exists() {
+                create_dir(&output_folder).await.unwrap();
+            }
 
-                    eval(&template.contents, state).unwrap()
-                };
+            self.inner_state
+                .as_mut()
+                .unwrap()
+                .parser_tasks
+                .spawn(async move {
+                    let html = {
+                        let mut state = (*state).clone();
 
-                // we need to save our file following the markdown file and not the template
-                let name = item.name.replace(".md", ".html");
-                let output_folder = output_folder.join(&collection_name);
+                        state.insert("content".into(), item.as_tinylang_state().into());
 
-                if !output_folder.exists() {
-                    //TODO ignoring the error for now because more than one green thread
-                    // may try to create the dir
-                    create_dir(&output_folder).await;
-                }
+                        eval(&template.contents, state).unwrap()
+                    };
 
-                let output_file = output_folder.join(&name);
-                let mut file = File::create(output_file).await.unwrap();
-                file.write_all(html.as_bytes()).await.unwrap();
-                name
-            });
+                    // we need to save our file following the markdown file and not the template
+                    let name = item.name.replace(".md", ".html");
+
+                    let output_file = output_folder.join(&name);
+                    let mut file = File::create(output_file).await.unwrap();
+                    file.write_all(html.as_bytes()).await.unwrap();
+                    name
+                });
         }
     }
 }

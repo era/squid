@@ -36,7 +36,7 @@ async fn main() {
         .map(|f| Configuration::from_toml(&f).unwrap());
     let markdown_folder = args.markdown_folder.map(|f| Path::new(&f).to_path_buf());
 
-    let website = Website::new(config, template_folder.to_path_buf(), markdown_folder);
+    let mut website = Website::new(config, template_folder.to_path_buf(), markdown_folder);
     let mut files_processed = website.build(output_folder).await.unwrap();
 
     let mut failed = false;

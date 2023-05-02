@@ -1,0 +1,13 @@
+<html>
+    <head>
+        <title>{{ website_name }} - {{ uri }}</title>
+    </head>
+    <body>
+       <h1>Posts</h1>
+       <ul>
+       {% for post in posts.items %}
+            <li><a href="{{post.partial_uri}}">{{ post.title }}</a></li>
+        {% end %}
+       </ul>
+    </body>
+</html>
