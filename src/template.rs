@@ -11,8 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tinylang::eval;
 use tinylang::types::{FuncArguments, State, TinyLangType};
-use tokio::fs::{create_dir, File};
-use tokio::io::AsyncWriteExt;
+use tokio::fs::create_dir;
 use tokio::task::JoinSet;
 
 struct InnerState {
@@ -106,24 +105,10 @@ impl Website {
                 }
             };
 
-            let partial_uri = file
-                .path
-                .to_string_lossy()
-                // we leave only the relative path after the `posts_folder` to avoid
-                // creating a url with a local path (e.g. $HOME/my_site/posts)
-                .replace(
-                    self.posts_folder
-                        .as_ref()
-                        .unwrap()
-                        .to_string_lossy()
-                        .as_ref(),
-                    "",
-                );
-
             let markdown_content = match MarkdownDocument::new(
                 &file.contents,
                 file.name,
-                partial_uri.replace("md", "html").into(),
+                self.partial_uri(&file.path),
             ) {
                 Ok(c) => c,
                 Err(e) => {
@@ -137,13 +122,31 @@ impl Website {
 
             //TODO avoid unwrap
             let path_as_string = path.file_name().unwrap().to_string_lossy();
+
             let collection = collections
                 .entry(path_as_string.to_string())
                 .or_insert(MarkdownCollection::new(path));
+
             collection.collection.push(markdown_content);
         }
 
         Ok(collections)
+    }
+
+    fn partial_uri(&self, path: &Path) -> String {
+        path.to_string_lossy()
+            .to_string()
+            // we leave only the relative path after the `posts_folder` to avoid
+            // creating a url with a local path (e.g. $HOME/my_site/posts)
+            .replace(
+                self.posts_folder
+                    .as_ref()
+                    .unwrap()
+                    .to_string_lossy()
+                    .as_ref(),
+                "",
+            )
+            .replace("md", "html")
     }
 
     /// build a template without any markdown
@@ -152,23 +155,22 @@ impl Website {
 
         let output_folder = inner_state.output_folder.to_path_buf();
         let state = inner_state.tinylang_state.clone();
-        
+
         self.inner_state
             .as_mut()
             .unwrap()
             .parser_tasks
             .spawn(async move {
-                let name = file.name.replace(".template", ".html");
-                let output = {
+                let file_name = file.name.replace(".template", ".html");
+                let html = {
                     let state = (*state).clone();
 
                     eval(&file.contents, state).unwrap()
                 };
 
-                let output_file = output_folder.join(&name);
-                let mut file = File::create(output_file).await.unwrap();
-                file.write_all(output.as_bytes()).await.unwrap();
-                name
+                io::write_to_disk(output_folder, &file_name, html).await;
+
+                file_name
             });
     }
 
@@ -216,27 +218,17 @@ impl Website {
 
     /// builds a collection of markdown files using the appropriate template
     async fn build_collection(&mut self, collection: MarkdownCollection, template: TemplateFile) {
+        let output_folder = self.mk_collection_dir(&collection).await;
+
         // we need for each item in the collection
         // to evaluate the template using its header and content
         for item in collection.collection {
             let inner_state = self.inner_state.as_ref().unwrap();
+            let output_folder = output_folder.clone();
 
-            let output_folder = inner_state.output_folder.to_path_buf();
             let state = inner_state.tinylang_state.clone();
-            let collection_name = collection.relative_path.clone();
 
-            let collection_name = collection_name
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
             let template = template.clone();
-
-            let output_folder = output_folder.join(&collection_name);
-
-            if !output_folder.exists() {
-                create_dir(&output_folder).await.unwrap();
-            }
 
             self.inner_state
                 .as_mut()
@@ -252,14 +244,35 @@ impl Website {
                     };
 
                     // we need to save our file following the markdown file and not the template
-                    let name = item.name.replace(".md", ".html");
+                    let file_name = item.name.replace(".md", ".html");
 
-                    let output_file = output_folder.join(&name);
-                    let mut file = File::create(output_file).await.unwrap();
-                    file.write_all(html.as_bytes()).await.unwrap();
-                    name
+                    io::write_to_disk(output_folder, &file_name, html).await;
+
+                    file_name
                 });
         }
+    }
+
+    async fn mk_collection_dir(&mut self, collection: &MarkdownCollection) -> PathBuf {
+        let collection_name = collection.relative_path.clone();
+        let collection_name = collection_name
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        let output_folder = self
+            .inner_state
+            .as_ref()
+            .unwrap()
+            .output_folder
+            .to_path_buf();
+        let output_folder = output_folder.join(&collection_name);
+
+        if !output_folder.exists() {
+            create_dir(&output_folder).await.unwrap();
+        }
+        output_folder
     }
 }
 

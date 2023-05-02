@@ -1,7 +1,7 @@
 use assert_cmd::prelude::*;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use tempdir::TempDir;
 
@@ -48,6 +48,7 @@ fn test_creates_basic_output() {
     let created = read_folder_contents(tempdir.path());
     let expected = read_folder_contents(&Path::new("tests/output/"));
 
+    println!("expected: {:?}", expected);
     assert!(!created.is_empty());
     for (key, value) in created {
         let expected_content = match expected.get(&key) {

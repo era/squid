@@ -4,6 +4,8 @@ use std::fs;
 use std::fs::ReadDir;
 use std::path::Path;
 use std::path::PathBuf;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug)]
 pub struct LazyFolderReader {
@@ -135,6 +137,12 @@ impl<'a> IntoIterator for &'a LazyFolderReader {
             current_position: 0,
         }
     }
+}
+
+pub(crate) async fn write_to_disk(dir: PathBuf, file_name: &str, output: String) {
+    let output_file = dir.join(file_name);
+    let mut file = File::create(output_file).await.unwrap();
+    file.write_all(output.as_bytes()).await.unwrap();
 }
 
 #[cfg(test)]
