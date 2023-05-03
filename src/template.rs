@@ -5,12 +5,12 @@ use anyhow::Context;
 use anyhow::Result;
 
 use crate::md::{MarkdownCollection, MarkdownDocument};
+use crate::tinylang::{render, sort_by_key};
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tinylang::eval;
-use tinylang::types::{FuncArguments, State, TinyLangType};
+use tinylang::types::{State, TinyLangType};
 use tokio::fs::create_dir;
 use tokio::task::JoinSet;
 
@@ -26,6 +26,33 @@ impl Builder {
             tinylang_state: Arc::new(state),
             output_folder,
             eval_tasks: JoinSet::new(),
+        }
+    }
+
+    async fn process_folder(
+        &mut self,
+        template_folder_reader: &mut LazyFolderReader,
+        collections: HashMap<String, MarkdownCollection>,
+    ) {
+        while let Some(file) = template_folder_reader.async_next().await {
+            let file = file.unwrap();
+
+            // should handle _name.template differently
+            // if there is a collection called "name" should create one file for each item in it
+            // otherwise should skip it (could be a partial)
+            if file.name.starts_with('_') {
+                // removing the first _
+                // and the .template from the end
+                // this is safe because we filtered based on the extension name ('.template')
+                let collection_name = &file.name[1..file.name.len() - 9];
+                if let Some(collection) = collections.get(collection_name) {
+                    self.eval_markdown_collection_to_output_file(collection.clone(), file)
+                        .await;
+                }
+                continue;
+            }
+
+            self.eval_template_to_output_file(file);
         }
     }
 
@@ -130,28 +157,9 @@ impl Website {
 
         let mut builder = Builder::new(self.build_state(&collections), output.to_path_buf());
 
-        //TODO move this to builder as well
-        while let Some(file) = template_folder_reader.async_next().await {
-            let file = file.unwrap();
-
-            // should handle _name.template differently
-            // if there is a collection called "name" should create one file for each item in it
-            // otherwise should skip it (could be a partial)
-            if file.name.starts_with('_') {
-                // removing the first _
-                // and the .template from the end
-                // this is safe because we filtered based on the extension name ('.template')
-                let collection_name = &file.name[1..file.name.len() - 9];
-                if let Some(collection) = collections.get(collection_name) {
-                    builder
-                        .eval_markdown_collection_to_output_file(collection.clone(), file)
-                        .await;
-                }
-                continue;
-            }
-
-            builder.eval_template_to_output_file(file);
-        }
+        builder
+            .process_folder(&mut template_folder_reader, collections)
+            .await;
 
         Ok(builder.eval_tasks)
     }
@@ -250,6 +258,10 @@ impl Website {
         }
 
         state.insert("render".into(), TinyLangType::Function(Arc::new(render)));
+        state.insert(
+            "sort_by_key".into(),
+            TinyLangType::Function(Arc::new(sort_by_key)),
+        );
         state
     }
 
@@ -260,27 +272,5 @@ impl Website {
         state.extend(self.build_collection_state(collections).into_iter());
 
         state
-    }
-}
-
-/// exposes render as a function in the template itself.
-fn render(arguments: FuncArguments, state: &State) -> TinyLangType {
-    if arguments.is_empty() {
-        return TinyLangType::Nil;
-    }
-
-    let page = match arguments.first().unwrap() {
-        TinyLangType::String(page) => page.as_str(),
-        _ => return TinyLangType::Nil,
-    };
-
-    let result = match fs::read_to_string(page) {
-        Ok(c) => eval(&c, state.clone()),
-        Err(e) => return TinyLangType::String(e.to_string()),
-    };
-
-    match result {
-        Ok(content) => TinyLangType::String(content),
-        Err(e) => TinyLangType::String(e.to_string()),
     }
 }

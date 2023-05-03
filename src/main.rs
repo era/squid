@@ -2,6 +2,7 @@ mod config;
 mod io;
 mod md;
 mod template;
+mod tinylang;
 
 use crate::config::Configuration;
 use crate::template::Website;
