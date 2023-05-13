@@ -257,10 +257,10 @@ impl Website {
             }
         }
 
-        state.insert("render".into(), TinyLangType::Function(Arc::new(render)));
+        state.insert("render".into(), TinyLangType::Function(render));
         state.insert(
             "sort_by_key".into(),
-            TinyLangType::Function(Arc::new(sort_by_key)),
+            TinyLangType::Function(sort_by_key),
         );
         state
     }

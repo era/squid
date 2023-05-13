@@ -30,12 +30,10 @@ pub fn sort_by_key(arguments: FuncArguments, _state: &State) -> TinyLangType {
         return TinyLangType::Nil;
     }
 
-    let collection = match arguments.first() {
+    let mut collection = match arguments.first() {
         Some(TinyLangType::Vec(vec)) => vec.clone(),
         _ => return TinyLangType::Nil,
     };
-
-    let mut collection = (*collection).clone();
 
     let key = match arguments.get(1) {
         Some(TinyLangType::String(s)) => s,
@@ -47,5 +45,5 @@ pub fn sort_by_key(arguments: FuncArguments, _state: &State) -> TinyLangType {
         _ => panic!("vector is not a vector of objects"),
     });
 
-    TinyLangType::Vec(collection.into())
+    TinyLangType::Vec(collection)
 }

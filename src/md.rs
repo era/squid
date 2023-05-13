@@ -3,7 +3,6 @@ use gray_matter::engine::YAML;
 use gray_matter::Matter;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tinylang::types::{State, TinyLangType};
 
 #[derive(Debug, Clone)]
@@ -37,7 +36,7 @@ impl MarkdownCollection {
             items_state.push(TinyLangType::Object(item.as_tinylang_state()));
         }
 
-        collection_state.insert("items".into(), TinyLangType::Vec(Arc::new(items_state)));
+        collection_state.insert("items".into(), TinyLangType::Vec(items_state));
         collection_state
     }
 }
