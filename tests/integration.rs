@@ -40,15 +40,16 @@ fn test_creates_basic_output() {
         .arg(tempdir.path())
         .arg("--markdown-folder")
         .arg("tests/markdown")
-        .arg("--configuration")
+        .arg("--template-variables")
         .arg("tests/config.toml")
+        .arg("--static-resources")
+        .arg("tests/static")
         .assert()
         .success();
 
     let created = read_folder_contents(tempdir.path());
     let expected = read_folder_contents(&Path::new("tests/output/"));
 
-    println!("expected: {:?}", expected);
     assert!(!created.is_empty());
     for (key, value) in created {
         let expected_content = match expected.get(&key) {

@@ -14,7 +14,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 .arg(tempdir.path())
                 .arg("--markdown-folder")
                 .arg("tests/markdown")
-                .arg("--configuration")
+                .arg("-v")
                 .arg("tests/config.toml")
                 .assert()
                 .success();

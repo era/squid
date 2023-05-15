@@ -258,10 +258,7 @@ impl Website {
         }
 
         state.insert("render".into(), TinyLangType::Function(render));
-        state.insert(
-            "sort_by_key".into(),
-            TinyLangType::Function(sort_by_key),
-        );
+        state.insert("sort_by_key".into(), TinyLangType::Function(sort_by_key));
         state
     }
 

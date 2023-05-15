@@ -144,6 +144,47 @@ pub(crate) async fn write_to_disk(dir: PathBuf, file_name: &str, output: String)
     let mut file = File::create(output_file).await.unwrap();
     file.write_all(output.as_bytes()).await.unwrap();
 }
+//based on https://stackoverflow.com/questions/26958489/how-to-copy-a-folder-recursively-in-rust
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    let mut stack = Vec::new();
+    stack.push(from.to_path_buf());
+
+    let output_root = to.to_path_buf();
+    let input_root = from.components().count();
+
+    while let Some(working_path) = stack.pop() {
+        // Generate a relative path
+        let src: PathBuf = working_path.components().skip(input_root).collect();
+
+        // Create a destination if missing
+        let dest = if src.components().count() == 0 {
+            output_root.clone()
+        } else {
+            output_root.join(&src)
+        };
+        if fs::metadata(&dest).is_err() {
+            fs::create_dir_all(&dest)?;
+        }
+
+        for entry in fs::read_dir(working_path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                match path.file_name() {
+                    Some(filename) => {
+                        let dest_path = dest.join(filename);
+                        fs::copy(&path, &dest_path)?;
+                    }
+                    None => return Err(anyhow!("could not copy {:?}", path)),
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod test {

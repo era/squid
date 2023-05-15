@@ -5,6 +5,7 @@ mod template;
 mod tinylang;
 
 use crate::config::Configuration;
+use crate::io::copy_dir;
 use crate::template::Website;
 use clap::Parser;
 use std::path::Path;
@@ -20,7 +21,10 @@ struct Args {
     markdown_folder: Option<String>,
 
     #[arg(short, long)]
-    configuration: Option<String>,
+    static_resources: Option<String>,
+
+    #[arg(short = 'v', long)]
+    template_variables: Option<String>,
 
     #[arg(short, long)]
     output_folder: String,
@@ -33,7 +37,7 @@ async fn main() {
     let template_folder = Path::new(&args.template_folder);
     let output_folder = Path::new(&args.output_folder);
     let config = args
-        .configuration
+        .template_variables
         .map(|f| Configuration::from_toml(&f).unwrap());
     let markdown_folder = args.markdown_folder.map(|f| Path::new(&f).to_path_buf());
 
@@ -53,7 +57,24 @@ async fn main() {
             }
         };
     }
+
+    let static_resources = args
+        .static_resources
+        .map(|dir| copy_dir(Path::new(&dir), output_folder));
+
     if failed {
         exit(1);
+    }
+
+    match static_resources {
+        Some(Err(e)) => {
+            eprintln!(
+                "task failed, could not copy static resources {:?}",
+                e.to_string()
+            );
+            exit(1);
+        }
+        Some(_) => println!("Copied static resources"),
+        _ => println!("No static resources to be copied over"),
     }
 }
