@@ -5,7 +5,7 @@ use anyhow::Context;
 use anyhow::Result;
 
 use crate::md::{MarkdownCollection, MarkdownDocument};
-use crate::tinylang::{render, sort_by_key};
+use crate::tinylang::{render, reverse, sort_by_key};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -259,6 +259,7 @@ impl Website {
 
         state.insert("render".into(), TinyLangType::Function(render));
         state.insert("sort_by_key".into(), TinyLangType::Function(sort_by_key));
+        state.insert("reverse".into(), TinyLangType::Function(reverse));
         state
     }
 

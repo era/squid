@@ -45,5 +45,25 @@ pub fn sort_by_key(arguments: FuncArguments, _state: &State) -> TinyLangType {
         _ => panic!("vector is not a vector of objects"),
     });
 
+    if arguments.len() == 3 {
+        if &TinyLangType::String("reversed".to_string()) == arguments.get(2).unwrap() {
+            collection.reverse();
+        }
+    }
+
+
+    TinyLangType::Vec(collection)
+}
+
+/// reverse an array
+pub fn reverse(arguments: FuncArguments, _state: &State) -> TinyLangType {
+
+    let mut collection = match arguments.first() {
+        Some(TinyLangType::Vec(vec)) => vec.clone(),
+        _ => return TinyLangType::Nil,
+    };
+
+    collection.reverse();
+
     TinyLangType::Vec(collection)
 }
