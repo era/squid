@@ -12,6 +12,7 @@ anyhow = "1.0.70"
 clap = { version = "4.2.4", features = ["derive"] }
 gray_matter = "0.2.6"
 markdown = "1.0.0-alpha.9"
+notify = "6.0.0"
 serde = { version = "1.0.160", features = ["derive"] }
 tinylang = { git = "https://github.com/era/tinylang", version = "0.1.0" }
 tokio = { version = "1.27.0", features = ["full"] }

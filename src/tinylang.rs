@@ -51,13 +51,11 @@ pub fn sort_by_key(arguments: FuncArguments, _state: &State) -> TinyLangType {
         }
     }
 
-
     TinyLangType::Vec(collection)
 }
 
 /// reverse an array
 pub fn reverse(arguments: FuncArguments, _state: &State) -> TinyLangType {
-
     let mut collection = match arguments.first() {
         Some(TinyLangType::Vec(vec)) => vec.clone(),
         _ => return TinyLangType::Nil,
