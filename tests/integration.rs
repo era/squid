@@ -81,7 +81,6 @@ fn test_watches() {
 
     //TODO stop leaking thread
     std::thread::spawn(move || {
-        println!("aaa");
         Command::cargo_bin("squid")
             .unwrap()
             .arg("--template-folder")
