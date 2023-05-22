@@ -45,10 +45,10 @@ pub fn sort_by_key(arguments: FuncArguments, _state: &State) -> TinyLangType {
         _ => panic!("vector is not a vector of objects"),
     });
 
-    if arguments.len() == 3 {
-        if &TinyLangType::String("reversed".to_string()) == arguments.get(2).unwrap() {
-            collection.reverse();
-        }
+    if arguments.len() == 3
+        && &TinyLangType::String("reversed".to_string()) == arguments.get(2).unwrap()
+    {
+        collection.reverse();
     }
 
     TinyLangType::Vec(collection)

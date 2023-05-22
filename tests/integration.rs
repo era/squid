@@ -51,7 +51,7 @@ fn test_creates_basic_output() {
         .success();
 
     let created = read_folder_contents(tempdir.path());
-    let expected = read_folder_contents(&Path::new("tests/output/"));
+    let expected = read_folder_contents(Path::new("tests/output/"));
 
     assert!(!created.is_empty());
     for (key, value) in created {

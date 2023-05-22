@@ -56,7 +56,7 @@ async fn build_website(args: &Args) {
     let config = args
         .template_variables
         .as_ref()
-        .map(|f| Configuration::from_toml(&f).unwrap());
+        .map(|f| Configuration::from_toml(f).unwrap());
     let markdown_folder = args
         .markdown_folder
         .as_ref()
@@ -124,10 +124,15 @@ async fn watch(args: Args, tokio_handle: Handle) {
         .unwrap();
     watchers.push(watcher);
 
-    watch_optional_folder(tx.clone(), tokio_handle.clone(), &args.markdown_folder)
-        .map(|w| watchers.push(w));
-    watch_optional_folder(tx.clone(), tokio_handle.clone(), &args.template_variables)
-        .map(|w| watchers.push(w));
+    if let Some(w) = watch_optional_folder(tx.clone(), tokio_handle.clone(), &args.markdown_folder)
+    {
+        watchers.push(w)
+    }
+    if let Some(w) =
+        watch_optional_folder(tx.clone(), tokio_handle.clone(), &args.template_variables)
+    {
+        watchers.push(w)
+    }
 
     while let Some(_m) = rx.recv().await {
         //TODO in the future only rebuild the parts that need to be rebuild
