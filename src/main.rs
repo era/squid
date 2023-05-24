@@ -8,13 +8,12 @@ mod watch;
 use crate::config::Configuration;
 use crate::io::copy_dir;
 use crate::template::Website;
+use crate::watch::FolderWatcher;
 use clap::Parser;
-use notify::{Event, EventHandler};
 use std::path::Path;
 use std::process::exit;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -36,19 +35,6 @@ struct Args {
 
     #[arg(short, long)]
     watch: bool,
-}
-
-#[derive(Clone)]
-struct WatchEventHandler {
-    handler: Handle,
-    tx: Sender<()>,
-}
-
-impl EventHandler for WatchEventHandler {
-    fn handle_event(&mut self, _event: notify::Result<Event>) {
-        let tx = self.tx.clone();
-        self.handler.spawn(async move { tx.send(()).await });
-    }
 }
 
 #[tokio::main]
@@ -119,17 +105,16 @@ async fn build_website(args: &Args) {
 /// in order to re-build the website
 async fn watch(args: Args, handler: Handle) {
     let (tx, mut rx) = mpsc::channel(1);
-    let event_handler = WatchEventHandler { handler, tx };
-    let mut watchers = Vec::with_capacity(3);
+    let mut watcher = FolderWatcher::new(handler, tx);
 
-    watchers.push(watch::watch(&args.template_folder, event_handler.clone()).unwrap());
+    watcher.watch(&args.template_folder).unwrap();
 
     if let Some(markdown_folder) = args.markdown_folder.as_ref() {
-        watchers.push(watch::watch(markdown_folder, event_handler.clone()).unwrap());
+        watcher.watch(markdown_folder).unwrap();
     }
 
     if let Some(template_var) = args.template_variables.as_ref() {
-        watchers.push(watch::watch(template_var, event_handler.clone()).unwrap());
+        watcher.watch(template_var).unwrap();
     }
 
     while let Some(_m) = rx.recv().await {

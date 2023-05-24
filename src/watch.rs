@@ -1,9 +1,44 @@
-use notify::{Error, EventHandler, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Error, Event, EventHandler, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
+use tokio::runtime::Handle;
+use tokio::sync::mpsc::Sender;
 
-pub fn watch<F: EventHandler>(folder: &str, event_handler: F) -> Result<RecommendedWatcher, Error> {
-    let mut watcher = RecommendedWatcher::new(event_handler, notify::Config::default())?;
-    watcher.watch(Path::new(folder), RecursiveMode::Recursive)?;
+pub struct FolderWatcher {
+    event_handler: WatchEventHandler,
+    watchers: Vec<RecommendedWatcher>,
+}
 
-    Ok(watcher)
+impl FolderWatcher {
+    pub fn new(handler: Handle, tx: Sender<()>) -> Self {
+        Self {
+            event_handler: WatchEventHandler::new(handler, tx),
+            watchers: Vec::new(),
+        }
+    }
+
+    pub fn watch(&mut self, folder: &str) -> Result<(), Error> {
+        let mut watcher =
+            RecommendedWatcher::new(self.event_handler.clone(), notify::Config::default())?;
+        watcher.watch(Path::new(folder), RecursiveMode::Recursive)?;
+        self.watchers.push(watcher);
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct WatchEventHandler {
+    handler: Handle,
+    tx: Sender<()>,
+}
+
+impl EventHandler for WatchEventHandler {
+    fn handle_event(&mut self, _event: notify::Result<Event>) {
+        let tx = self.tx.clone();
+        self.handler.spawn(async move { tx.send(()).await });
+    }
+}
+impl WatchEventHandler {
+    pub fn new(handler: Handle, tx: Sender<()>) -> Self {
+        Self { handler, tx }
+    }
 }
