@@ -3,12 +3,13 @@ mod io;
 mod md;
 mod template;
 mod tinylang;
+mod watch;
 
 use crate::config::Configuration;
 use crate::io::copy_dir;
 use crate::template::Website;
 use clap::Parser;
-use notify::{Error, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventHandler};
 use std::path::Path;
 use std::process::exit;
 use tokio::runtime::Handle;
@@ -35,6 +36,19 @@ struct Args {
 
     #[arg(short, long)]
     watch: bool,
+}
+
+#[derive(Clone)]
+struct WatchEventHandler {
+    handler: Handle,
+    tx: Sender<()>,
+}
+
+impl EventHandler for WatchEventHandler {
+    fn handle_event(&mut self, _event: notify::Result<Event>) {
+        let tx = self.tx.clone();
+        self.handler.spawn(async move { tx.send(()).await });
+    }
 }
 
 #[tokio::main]
@@ -101,58 +115,25 @@ async fn build_website(args: &Args) {
     }
 }
 
-fn new_watcher(tx: Sender<()>, tokio_handle: Handle) -> RecommendedWatcher {
-    RecommendedWatcher::new(
-        move |_result: Result<Event, Error>| {
-            let tx = tx.clone();
-            tokio_handle.spawn(async move { tx.send(()).await });
-        },
-        notify::Config::default(),
-    )
-    .unwrap()
-}
-
 /// watches for change in the directories selected by the user
 /// in order to re-build the website
-async fn watch(args: Args, tokio_handle: Handle) {
+async fn watch(args: Args, handler: Handle) {
     let (tx, mut rx) = mpsc::channel(1);
+    let event_handler = WatchEventHandler { handler, tx };
     let mut watchers = Vec::with_capacity(3);
 
-    let mut watcher = new_watcher(tx.clone(), tokio_handle.clone());
-    watcher
-        .watch(Path::new(&args.template_folder), RecursiveMode::Recursive)
-        .unwrap();
-    watchers.push(watcher);
+    watchers.push(watch::watch(&args.template_folder, event_handler.clone()).unwrap());
 
-    if let Some(w) = watch_optional_folder(tx.clone(), tokio_handle.clone(), &args.markdown_folder)
-    {
-        watchers.push(w)
+    if let Some(markdown_folder) = args.markdown_folder.as_ref() {
+        watchers.push(watch::watch(markdown_folder, event_handler.clone()).unwrap());
     }
-    if let Some(w) =
-        watch_optional_folder(tx.clone(), tokio_handle.clone(), &args.template_variables)
-    {
-        watchers.push(w)
+
+    if let Some(template_var) = args.template_variables.as_ref() {
+        watchers.push(watch::watch(template_var, event_handler.clone()).unwrap());
     }
 
     while let Some(_m) = rx.recv().await {
         //TODO in the future only rebuild the parts that need to be rebuild
         build_website(&args).await
-    }
-}
-
-/// small helper to avoid code duplication regarding an optional folder
-fn watch_optional_folder(
-    tx: Sender<()>,
-    tokio_handle: Handle,
-    folder: &Option<String>,
-) -> Option<RecommendedWatcher> {
-    if let Some(folder) = folder {
-        let mut watcher = new_watcher(tx, tokio_handle);
-        watcher
-            .watch(Path::new(&folder), RecursiveMode::Recursive)
-            .unwrap();
-        Some(watcher)
-    } else {
-        None
     }
 }
