@@ -26,3 +26,4 @@ tower-http = { version = "0.4.0", features = ["fs"] }
 assert_cmd = "2.0.11"
 criterion = "0.4.0"
 tempdir = "0.3.7"
+hyper = { version = "0.14.26", features = ["server", "http1", "tcp", "client"] }

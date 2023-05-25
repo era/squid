@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use hyper::Client;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
@@ -102,4 +103,36 @@ fn test_watches() {
     //TODO avoid sleeping during tests
     sleep(Duration::from_millis(100));
     assert!(tempdir.into_path().join("hello.txt").exists())
+}
+
+#[tokio::test]
+async fn test_webserver() {
+    let output_folder = TempDir::new("output").unwrap();
+
+    //TODO stop leaking thread
+    std::thread::spawn(move || {
+        Command::cargo_bin("squid")
+            .unwrap()
+            .arg("--template-folder")
+            .arg("tests/templates")
+            .arg("--output-folder")
+            .arg(output_folder.path())
+            .arg("--markdown-folder")
+            .arg("tests/markdown")
+            .arg("--template-variables")
+            .arg("tests/config.toml")
+            .arg("--static-resources")
+            .arg("tests/static")
+            .arg("--serve")
+            .arg("8181")
+            .assert()
+            .success();
+    });
+    sleep(Duration::from_millis(10));
+    let client = Client::new();
+
+    let uri = "http://localhost:8181".parse().unwrap();
+
+    let resp = client.get(uri).await.unwrap();
+    assert_eq!(200, resp.status())
 }
