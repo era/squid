@@ -1,4 +1,5 @@
 mod config;
+mod http;
 mod io;
 mod md;
 mod template;
@@ -35,18 +36,32 @@ struct Args {
 
     #[arg(short, long)]
     watch: bool,
+
+    #[arg(short = 'p', long)]
+    serve: Option<u16>,
 }
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let args = Args::parse();
 
     build_website(&args).await;
+
+    let mut async_server = None;
+
+    if let Some(port) = args.serve.as_ref() {
+        println!("Serving website at http://127.0.0.1:{port}");
+        let folder = &args.output_folder;
+        async_server = Some(http::serve(port.clone(), folder));
+    }
 
     if args.watch {
         println!("going to watch for change on files");
         let handle = Handle::current();
         watch(args, handle).await;
+    } else if let Some(async_server) = async_server {
+        async_server.await.unwrap();
     }
 }
 
