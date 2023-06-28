@@ -56,12 +56,12 @@ async fn main() {
         async_server = Some(http::serve(port.clone(), folder));
     }
 
-    if args.watch {
+    if let Some(async_server) = async_server {
+        async_server.await.unwrap();
+    } else if args.watch {
         println!("going to watch for change on files");
         let handle = Handle::current();
         watch(args, handle).await;
-    } else if let Some(async_server) = async_server {
-        async_server.await.unwrap();
     }
 }
 
