@@ -133,7 +133,9 @@ async fn watch(args: Args, handler: Handle) {
     }
 
     while let Some(_m) = rx.recv().await {
+        println!("Detected changes on files, rebuilding site");
         //TODO in the future only rebuild the parts that need to be rebuild
-        build_website(&args).await
+        build_website(&args).await;
+        println!("Site rebuilt");
     }
 }

@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
+use anyhow::Context;
 use tempdir::TempDir;
 
 fn read_folder_contents(folder_path: &Path) -> HashMap<String, String> {
@@ -67,8 +68,8 @@ fn test_creates_basic_output() {
     }
 }
 
-#[test]
-fn test_watches() {
+#[tokio::test]
+async fn test_watches() {
     let tempdir = TempDir::new("output").unwrap();
     let static_folder = TempDir::new("static_folder").unwrap();
 
@@ -100,9 +101,14 @@ fn test_watches() {
     });
 
     File::create(static_folder.into_path().join("hello.txt")).unwrap();
-    //TODO avoid sleeping during tests
-    sleep(Duration::from_millis(100));
-    assert!(tempdir.into_path().join("hello.txt").exists())
+
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let path = tempdir.into_path().join("hello.txt");
+        while !path.exists() {}
+        true
+    }).await.context("file was not created before timeout of 10s").unwrap();
+
+    assert!(result)
 }
 
 #[tokio::test]
