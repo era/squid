@@ -137,35 +137,57 @@ impl App {
     /// watches for change in the directories selected by the user
     /// in order to re-build the website
     async fn watch_website_files(&self, mut website: Website) {
-        //TODO send different types of events depending on the folder that was modified
         let (tx, mut rx) = mpsc::channel(1);
         let mut watcher = FolderWatcher::new(Handle::current(), tx);
 
-        watcher.watch(&self.args.template_folder).unwrap();
+        watcher
+            .watch(&self.args.template_folder, FolderModified::TemplatesFolder)
+            .unwrap();
 
         if let Some(markdown_folder) = self.args.markdown_folder.as_ref() {
-            watcher.watch(markdown_folder).unwrap();
+            watcher
+                .watch(markdown_folder, FolderModified::MarkdownFolder)
+                .unwrap();
         }
 
         if let Some(template_var) = self.args.template_variables.as_ref() {
-            watcher.watch(template_var).unwrap();
+            watcher
+                .watch(template_var, FolderModified::TemplateVariables)
+                .unwrap();
+        }
+
+        if let Some(static_resources) = self.args.static_resources.as_ref() {
+            watcher
+                .watch(static_resources, FolderModified::StaticFolder)
+                .unwrap();
         }
 
         let output_folder = Path::new(&self.args.output_folder);
 
-        while let Some(_m) = rx.recv().await {
-            //TODO add a match for the time of event we are receving from the channel
+        while let Some(folder_modified) = rx.recv().await {
             println!("Detected changes on files, rebuilding site");
-            //TODO in the future only rebuild the parts that need to be rebuild
-            let mut files_processed = website.build_from_scratch(output_folder).await.unwrap();
-            Self::process_website_files(&mut files_processed).await;
-
-            //TODO check if any static files was modified and only recopy if so
-            self.copy_static_files(output_folder);
-            //TODO if we modified a markdown file we should only build it
-            // by calling website.compile_templates()
+            match folder_modified {
+                FolderModified::StaticFolder => self.copy_static_files(output_folder),
+                FolderModified::MarkdownFolder => {
+                    let mut files_processed = website.compile_templates().await.unwrap();
+                    Self::process_website_files(&mut files_processed).await;
+                }
+                _ => {
+                    let mut files_processed =
+                        website.build_from_scratch(output_folder).await.unwrap();
+                    Self::process_website_files(&mut files_processed).await;
+                }
+            }
 
             println!("Site rebuilt");
         }
     }
+}
+
+#[derive(Debug, Clone)]
+enum FolderModified {
+    StaticFolder,
+    MarkdownFolder,
+    TemplatesFolder,
+    TemplateVariables,
 }

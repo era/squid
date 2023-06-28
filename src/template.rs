@@ -161,10 +161,6 @@ impl Website {
     }
 
     pub async fn build_from_scratch(&mut self, output: &Path) -> Result<JoinSet<String>> {
-        let mut template_folder_reader =
-            LazyFolderReader::new(&self.template_folder, "template")
-                .context("could not create lazy folder reader for template folder")?;
-
         let collections = self.build_markdown_collections().await?;
 
         self.cache.builder = Some(Builder::new(
@@ -172,20 +168,20 @@ impl Website {
             output.to_path_buf(),
         ));
 
-        self.compile_templates(&mut template_folder_reader).await
+        self.compile_templates().await
     }
 
-    pub async fn compile_templates(
-        &mut self,
-        template_folder_reader: &mut LazyFolderReader,
-    ) -> Result<JoinSet<String>> {
+    pub async fn compile_templates(&mut self) -> Result<JoinSet<String>> {
+        let mut template_folder_reader =
+            LazyFolderReader::new(&self.template_folder, "template")
+                .context("could not create lazy folder reader for template folder")?;
         self.cache
             .builder
             .as_mut()
             .context("compile_templates called without caching builder")?
             .process_folder(
                 JoinSet::new(),
-                template_folder_reader,
+                &mut template_folder_reader,
                 self.cache
                     .collections
                     .as_ref()
