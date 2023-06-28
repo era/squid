@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::exit;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -46,7 +47,9 @@ impl App {
     }
 
     pub async fn run(&mut self) {
-        self.build_website().await;
+        let output_folder = Path::new(&self.args.output_folder);
+        let website = self.build_website(output_folder).await;
+        self.copy_static_files(output_folder);
 
         let mut async_server = None;
 
@@ -57,17 +60,21 @@ impl App {
         }
 
         if let Some(async_server) = async_server {
-            async_server.await.unwrap();
+            // if server flag is on, we always will rebuild the website
+            // on changes
+            tokio::spawn(async {
+                async_server.await.unwrap();
+            });
+            self.watch_website_files(website).await;
         } else if self.args.watch {
             println!("going to watch for change on files");
-            let handle = Handle::current();
-            self.watch(handle).await;
+            self.watch_website_files(website).await;
         }
     }
 
-    async fn build_website(&self) {
+    async fn build_website(&self, output_folder: &Path) -> Website {
         let template_folder = Path::new(&self.args.template_folder);
-        let output_folder = Path::new(&self.args.output_folder);
+
         let config = self
             .args
             .template_variables
@@ -80,8 +87,14 @@ impl App {
             .map(|f| Path::new(&f).to_path_buf());
 
         let mut website = Website::new(config, template_folder.to_path_buf(), markdown_folder);
-        let mut files_processed = website.build(output_folder).await.unwrap();
+        let mut files_processed = website.build_from_scratch(output_folder).await.unwrap();
 
+        Self::process_website_files(&mut files_processed).await;
+
+        website
+    }
+
+    async fn process_website_files(files_processed: &mut JoinSet<String>) {
         let mut failed = false;
 
         while let Some(res) = files_processed.join_next().await {
@@ -96,15 +109,17 @@ impl App {
             };
         }
 
+        if failed {
+            exit(1);
+        }
+    }
+
+    fn copy_static_files(&self, output_folder: &Path) {
         let static_resources = self
             .args
             .static_resources
             .as_ref()
             .map(|dir| copy_dir(Path::new(&dir), output_folder));
-
-        if failed {
-            exit(1);
-        }
 
         match static_resources {
             Some(Err(e)) => {
@@ -121,9 +136,10 @@ impl App {
 
     /// watches for change in the directories selected by the user
     /// in order to re-build the website
-    async fn watch(&self, handler: Handle) {
+    async fn watch_website_files(&self, mut website: Website) {
+        //TODO send different types of events depending on the folder that was modified
         let (tx, mut rx) = mpsc::channel(1);
-        let mut watcher = FolderWatcher::new(handler, tx);
+        let mut watcher = FolderWatcher::new(Handle::current(), tx);
 
         watcher.watch(&self.args.template_folder).unwrap();
 
@@ -135,10 +151,20 @@ impl App {
             watcher.watch(template_var).unwrap();
         }
 
+        let output_folder = Path::new(&self.args.output_folder);
+
         while let Some(_m) = rx.recv().await {
+            //TODO add a match for the time of event we are receving from the channel
             println!("Detected changes on files, rebuilding site");
             //TODO in the future only rebuild the parts that need to be rebuild
-            self.build_website().await;
+            let mut files_processed = website.build_from_scratch(output_folder).await.unwrap();
+            Self::process_website_files(&mut files_processed).await;
+
+            //TODO check if any static files was modified and only recopy if so
+            self.copy_static_files(output_folder);
+            //TODO if we modified a markdown file we should only build it
+            // by calling website.compile_templates()
+
             println!("Site rebuilt");
         }
     }

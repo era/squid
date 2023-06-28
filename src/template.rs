@@ -17,7 +17,7 @@ use tokio::task::JoinSet;
 struct Builder {
     tinylang_state: Arc<State>,
     output_folder: PathBuf,
-    eval_tasks: JoinSet<String>,
+    eval_tasks: Option<JoinSet<String>>,
 }
 
 impl Builder {
@@ -25,15 +25,18 @@ impl Builder {
         Self {
             tinylang_state: Arc::new(state),
             output_folder,
-            eval_tasks: JoinSet::new(),
+            eval_tasks: None,
         }
     }
 
     async fn process_folder(
         &mut self,
+        eval_tasks: JoinSet<String>,
         template_folder_reader: &mut LazyFolderReader,
-        collections: HashMap<String, MarkdownCollection>,
+        collections: &HashMap<String, MarkdownCollection>,
     ) {
+        self.eval_tasks = Some(eval_tasks);
+
         while let Some(file) = template_folder_reader.async_next().await {
             let file = file.unwrap();
 
@@ -61,7 +64,7 @@ impl Builder {
         let output_folder = self.output_folder.to_path_buf();
         let state = self.tinylang_state.clone();
 
-        self.eval_tasks.spawn(async move {
+        self.eval_tasks.as_mut().unwrap().spawn(async move {
             let file_name = file.name.replace(".template", ".html");
             let html = {
                 let state = (*state).clone();
@@ -109,7 +112,7 @@ impl Builder {
 
             let template = template.clone();
 
-            self.eval_tasks.spawn(async move {
+            self.eval_tasks.as_mut().unwrap().spawn(async move {
                 let html = {
                     let mut state = (*state).clone();
 
@@ -129,10 +132,18 @@ impl Builder {
     }
 }
 
+#[derive(Default)]
+struct WebsiteCachedState {
+    collections: Option<HashMap<String, MarkdownCollection>>,
+    state: Option<State>,
+    builder: Option<Builder>,
+}
+
 pub struct Website {
     template_folder: PathBuf,
     posts_folder: Option<PathBuf>,
     configuration: Option<Configuration>,
+    cache: WebsiteCachedState,
 }
 
 impl Website {
@@ -145,26 +156,56 @@ impl Website {
             template_folder,
             posts_folder,
             configuration,
+            cache: WebsiteCachedState::default(),
         }
     }
 
-    pub async fn build(&mut self, output: &Path) -> Result<JoinSet<String>> {
+    pub async fn build_from_scratch(&mut self, output: &Path) -> Result<JoinSet<String>> {
         let mut template_folder_reader =
             LazyFolderReader::new(&self.template_folder, "template")
                 .context("could not create lazy folder reader for template folder")?;
 
         let collections = self.build_markdown_collections().await?;
 
-        let mut builder = Builder::new(self.build_state(&collections), output.to_path_buf());
+        self.cache.builder = Some(Builder::new(
+            self.build_state(&collections),
+            output.to_path_buf(),
+        ));
 
-        builder
-            .process_folder(&mut template_folder_reader, collections)
-            .await;
-
-        Ok(builder.eval_tasks)
+        self.compile_templates(&mut template_folder_reader).await
     }
 
-    async fn build_markdown_collections(&self) -> Result<HashMap<String, MarkdownCollection>> {
+    pub async fn compile_templates(
+        &mut self,
+        template_folder_reader: &mut LazyFolderReader,
+    ) -> Result<JoinSet<String>> {
+        self.cache
+            .builder
+            .as_mut()
+            .context("compile_templates called without caching builder")?
+            .process_folder(
+                JoinSet::new(),
+                template_folder_reader,
+                self.cache
+                    .collections
+                    .as_ref()
+                    .context("compile_templates called without caching collections")?,
+            )
+            .await;
+
+        Ok(self
+            .cache
+            .builder
+            .as_mut()
+            .context("compile_templates called without caching builder")?
+            .eval_tasks
+            .take()
+            .unwrap())
+    }
+
+    pub async fn build_markdown_collections(
+        &mut self,
+    ) -> Result<HashMap<String, MarkdownCollection>> {
         let mut collections = HashMap::new();
         let posts_folder = match &self.posts_folder {
             Some(p) => p,
@@ -209,6 +250,7 @@ impl Website {
             collection.collection.push(markdown_content);
         }
 
+        self.cache.collections = Some(collections.clone());
         Ok(collections)
     }
 
@@ -263,12 +305,12 @@ impl Website {
         state
     }
 
-    fn build_state(&self, collections: &HashMap<String, MarkdownCollection>) -> State {
+    fn build_state(&mut self, collections: &HashMap<String, MarkdownCollection>) -> State {
         let mut state = self.build_default_state();
         // passes all the collections state as well so users can use it for
         // things like pagination
         state.extend(self.build_collection_state(collections).into_iter());
-
+        self.cache.state = Some(state.clone());
         state
     }
 }
