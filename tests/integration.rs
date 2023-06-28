@@ -1,3 +1,4 @@
+use anyhow::Context;
 use assert_cmd::prelude::*;
 use hyper::Client;
 use std::collections::HashMap;
@@ -7,7 +8,6 @@ use std::path::Path;
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
-use anyhow::Context;
 use tempdir::TempDir;
 
 fn read_folder_contents(folder_path: &Path) -> HashMap<String, String> {
@@ -106,7 +106,10 @@ async fn test_watches() {
         let path = tempdir.into_path().join("hello.txt");
         while !path.exists() {}
         true
-    }).await.context("file was not created before timeout of 10s").unwrap();
+    })
+    .await
+    .context("file was not created before timeout of 10s")
+    .unwrap();
 
     assert!(result)
 }
