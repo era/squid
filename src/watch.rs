@@ -7,7 +7,8 @@ pub struct FolderWatcher<T>
 where
     T: Clone,
 {
-    event_handler: WatchEventHandler<T>,
+    handle: Handle,
+    tx: Sender<T>,
     watchers: Vec<RecommendedWatcher>,
 }
 
@@ -16,19 +17,23 @@ where
     T: Clone,
     WatchEventHandler<T>: EventHandler,
 {
-    pub fn new(handler: Handle, tx: Sender<T>) -> Self {
+    pub fn new(handle: Handle, tx: Sender<T>) -> Self {
         Self {
-            event_handler: WatchEventHandler::new(handler, tx, None),
+            tx,
+            handle,
             watchers: Vec::new(),
         }
     }
 
     pub fn watch(&mut self, folder: &str, variant_to_send: T) -> Result<(), Error> {
-        let mut event_handler = self.event_handler.clone();
-        event_handler.variant = Some(variant_to_send);
-        let mut watcher = RecommendedWatcher::new(event_handler, notify::Config::default())?;
-        watcher.watch(Path::new(folder), RecursiveMode::Recursive)?;
-        self.watchers.push(watcher);
+        let event_handler =
+            WatchEventHandler::new(self.handle.clone(), self.tx.clone(), variant_to_send);
+
+        let mut recommend_watcher =
+            RecommendedWatcher::new(event_handler, notify::Config::default())?;
+        recommend_watcher.watch(Path::new(folder), RecursiveMode::Recursive)?;
+        self.watchers.push(recommend_watcher);
+
         Ok(())
     }
 }
@@ -39,7 +44,7 @@ where
     T: Clone,
 {
     handler: Handle,
-    variant: Option<T>,
+    variant: T,
     tx: Sender<T>,
 }
 
@@ -49,7 +54,7 @@ where
 {
     fn handle_event(&mut self, _event: notify::Result<Event>) {
         let tx = self.tx.clone();
-        let value = self.variant.clone().unwrap();
+        let value = self.variant.clone();
         self.handler.spawn(async move { tx.send(value).await });
     }
 }
@@ -57,7 +62,7 @@ impl<T> WatchEventHandler<T>
 where
     T: Clone,
 {
-    pub fn new(handler: Handle, tx: Sender<T>, variant: Option<T>) -> Self {
+    pub fn new(handler: Handle, tx: Sender<T>, variant: T) -> Self {
         Self {
             handler,
             tx,
