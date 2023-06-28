@@ -10,6 +10,15 @@ use std::thread::sleep;
 use std::time::Duration;
 use tempdir::TempDir;
 
+struct Squid(std::process::Child);
+
+impl Drop for Squid {
+    fn drop(&mut self) {
+        // ignores the error
+        let _ = self.0.kill();
+    }
+}
+
 fn read_folder_contents(folder_path: &Path) -> HashMap<String, String> {
     let mut contents = HashMap::new();
 
@@ -81,9 +90,8 @@ async fn test_watches() {
         .unwrap()
         .to_string();
 
-    //TODO stop leaking thread
-    std::thread::spawn(move || {
-        Command::cargo_bin("squid")
+
+    let cargo_bin = Command::cargo_bin("squid")
             .unwrap()
             .arg("--template-folder")
             .arg("tests/templates")
@@ -95,10 +103,9 @@ async fn test_watches() {
             .arg("tests/config.toml")
             .arg("--static-resources")
             .arg(static_folder_cmd)
-            .arg("--watch")
-            .unwrap()
-            .unwrap();
-    });
+            .arg("--watch").spawn();
+
+    let _squid = Squid(cargo_bin.unwrap());
 
     File::create(static_folder.into_path().join("hello.txt")).unwrap();
 
@@ -111,16 +118,14 @@ async fn test_watches() {
     .context("file was not created before timeout of 10s")
     .unwrap();
 
-    assert!(result)
+    assert!(result);
 }
 
 #[tokio::test]
 async fn test_webserver() {
     let output_folder = TempDir::new("output").unwrap();
 
-    //TODO stop leaking thread
-    std::thread::spawn(move || {
-        Command::cargo_bin("squid")
+    let cargo_bin = Command::cargo_bin("squid")
             .unwrap()
             .arg("--template-folder")
             .arg("tests/templates")
@@ -133,10 +138,10 @@ async fn test_webserver() {
             .arg("--static-resources")
             .arg("tests/static")
             .arg("--serve")
-            .arg("8181")
-            .assert()
-            .success();
-    });
+            .arg("8181").spawn();
+
+    let _squid = Squid(cargo_bin.unwrap());
+
     sleep(Duration::from_millis(10));
     let client = Client::new();
 
