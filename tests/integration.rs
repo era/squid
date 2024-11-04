@@ -141,7 +141,7 @@ async fn test_webserver() {
 
     let resp = client.get(uri).await.unwrap();
     assert_eq!(200, resp.status());
-  
+
     kill_child(&cargo_bin.id().to_string())
 }
 

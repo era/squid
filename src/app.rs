@@ -9,7 +9,6 @@ use std::process::exit;
 use tokio::runtime::Handle;
 use tokio::signal;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot::{self, Receiver};
 use tokio::task::JoinSet;
 
 #[derive(Parser, Debug, Clone)]
@@ -47,21 +46,8 @@ impl App {
             args: Args::parse(),
         }
     }
-    fn sigint(&self) -> Receiver<()> {
-        let (signal_tx, signal_rx) = oneshot::channel();
-
-        // Spawn a task to listen for Ctrl+C
-        tokio::spawn(async move {
-            if signal::ctrl_c().await.is_ok() {
-                // Send a message to the signal channel
-                let _ = signal_tx.send(());
-            }
-        });
-        signal_rx
-    }
 
     pub async fn run(&mut self) {
-        let user_ctrl_c = self.sigint();
         let output_folder = Path::new(&self.args.output_folder);
         let website = self.build_website(output_folder).await;
         self.copy_static_files(output_folder);
@@ -80,13 +66,13 @@ impl App {
             tokio::select! {
                 _ = async_server => {},
                 _ = self.watch_website_files(website) => {},
-                _ = user_ctrl_c => { println!("Stopping..."); }
+                _ = signal::ctrl_c() => { println!("Stopping..."); }
             };
         } else if self.args.watch {
             println!("going to watch for change on files");
             tokio::select! {
                 _ = self.watch_website_files(website) => {},
-                _ = user_ctrl_c => { println!("Stopping..."); },
+                _ = signal::ctrl_c() => { println!("Stopping..."); },
             };
         }
     }
