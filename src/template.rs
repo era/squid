@@ -40,9 +40,8 @@ impl Builder {
         while let Some(file) = template_folder_reader.async_next().await {
             let file = file.unwrap();
 
-            // should handle _name.template differently
-            // if there is a collection called "name" should create one file for each item in it
-            // otherwise should skip it (could be a partial)
+            // should handle _name.template differently since they are partials
+            // for the rest of the templates we should generate a single output with same name
             if file.name.starts_with('_') {
                 // removing the first _
                 // and the .template from the end

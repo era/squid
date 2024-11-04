@@ -9,15 +9,7 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 use tempdir::TempDir;
-
-struct Squid(std::process::Child);
-
-impl Drop for Squid {
-    fn drop(&mut self) {
-        // ignores the error
-        let _ = self.0.kill();
-    }
-}
+use tokio::signal;
 
 fn read_folder_contents(folder_path: &Path) -> HashMap<String, String> {
     let mut contents = HashMap::new();
@@ -90,22 +82,21 @@ async fn test_watches() {
         .unwrap()
         .to_string();
 
-
     let cargo_bin = Command::cargo_bin("squid")
-            .unwrap()
-            .arg("--template-folder")
-            .arg("tests/templates")
-            .arg("--output-folder")
-            .arg(output_folder)
-            .arg("--markdown-folder")
-            .arg("tests/markdown")
-            .arg("--template-variables")
-            .arg("tests/config.toml")
-            .arg("--static-resources")
-            .arg(static_folder_cmd)
-            .arg("--watch").spawn();
-
-    let _squid = Squid(cargo_bin.unwrap());
+        .unwrap()
+        .arg("--template-folder")
+        .arg("tests/templates")
+        .arg("--output-folder")
+        .arg(output_folder)
+        .arg("--markdown-folder")
+        .arg("tests/markdown")
+        .arg("--template-variables")
+        .arg("tests/config.toml")
+        .arg("--static-resources")
+        .arg(static_folder_cmd)
+        .arg("--watch")
+        .spawn()
+        .unwrap();
 
     File::create(static_folder.into_path().join("hello.txt")).unwrap();
 
@@ -119,6 +110,7 @@ async fn test_watches() {
     .unwrap();
 
     assert!(result);
+    kill_child(&cargo_bin.id().to_string())
 }
 
 #[tokio::test]
@@ -126,21 +118,21 @@ async fn test_webserver() {
     let output_folder = TempDir::new("output").unwrap();
 
     let cargo_bin = Command::cargo_bin("squid")
-            .unwrap()
-            .arg("--template-folder")
-            .arg("tests/templates")
-            .arg("--output-folder")
-            .arg(output_folder.path())
-            .arg("--markdown-folder")
-            .arg("tests/markdown")
-            .arg("--template-variables")
-            .arg("tests/config.toml")
-            .arg("--static-resources")
-            .arg("tests/static")
-            .arg("--serve")
-            .arg("8181").spawn();
-
-    let _squid = Squid(cargo_bin.unwrap());
+        .unwrap()
+        .arg("--template-folder")
+        .arg("tests/templates")
+        .arg("--output-folder")
+        .arg(output_folder.path())
+        .arg("--markdown-folder")
+        .arg("tests/markdown")
+        .arg("--template-variables")
+        .arg("tests/config.toml")
+        .arg("--static-resources")
+        .arg("tests/static")
+        .arg("--serve")
+        .arg("8181")
+        .spawn()
+        .unwrap();
 
     sleep(Duration::from_millis(10));
     let client = Client::new();
@@ -148,5 +140,15 @@ async fn test_webserver() {
     let uri = "http://localhost:8181".parse().unwrap();
 
     let resp = client.get(uri).await.unwrap();
-    assert_eq!(200, resp.status())
+    assert_eq!(200, resp.status());
+  
+    kill_child(&cargo_bin.id().to_string())
+}
+
+fn kill_child(child_id: &str) {
+    let mut kill = Command::new("kill")
+        .args(["-s", "INT", child_id])
+        .spawn()
+        .unwrap();
+    kill.wait().unwrap();
 }
