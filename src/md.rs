@@ -137,20 +137,7 @@ impl MarkdownDocument {
             .unwrap_or_else(Vec::new);
 
         Ok(crate::rss::PostMetadata {
-            title: self
-                .name
-                .replace(".md", "")
-                .replace('-', " ")
-                .split_whitespace()
-                .map(|s| {
-                    let mut chars = s.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
+            title: self.header.get("title").cloned().unwrap_or_default(),
             file_name: self.partial_uri.clone(),
             date,
             excerpt,
