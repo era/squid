@@ -1,6 +1,7 @@
 use crate::config::Configuration;
 use crate::io;
 use crate::io::{LazyFolderReader, TemplateFile};
+use crate::rss::*;
 use anyhow::Context;
 use anyhow::Result;
 
@@ -161,13 +162,57 @@ impl Website {
 
     pub async fn build_from_scratch(&mut self, output: &Path) -> Result<JoinSet<String>> {
         let collections = self.build_markdown_collections().await?;
-
+        let c = self.configuration.clone().unwrap(); //fixme
+        let feed_config = FeedConfig {
+                title: c.website_name.clone(),
+                description: c.custom_keys
+                    .get("description")
+                    .cloned()
+                    .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
+                website_url: c.uri.clone(),
+                feed_url: format!("{}/rss.xml", c.uri),
+                author: c.custom_keys
+                    .get("author")
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown Author".to_string()),
+                language: c.custom_keys
+                    .get("language")
+                    .cloned()
+                    .unwrap_or_else(|| "en-us".to_string()),
+            };
+       
         self.cache.builder = Some(Builder::new(
             self.build_state(&collections),
             output.to_path_buf(),
         ));
 
+        self.generate_site_rss(&feed_config, &collections, output)
+            .await?;
+
         self.compile_templates().await
+    }
+
+    async fn generate_site_rss(
+        &self,
+        config: &FeedConfig,
+        collections: &HashMap<String, MarkdownCollection>,
+        output: &std::path::Path,
+    ) -> Result<()> {
+        // Collect all posts from all collections
+        let mut all_posts = Vec::new();
+
+        for collection in collections.values() {
+            let collection_posts = collection
+                .collection
+                .iter()
+                .filter_map(|doc| doc.to_post_metadata(&config.website_url).ok());
+            all_posts.extend(collection_posts);
+        }
+
+        // Generate RSS feed
+        generate_rss(config, &all_posts, output).context("Failed to generate RSS feed")?;
+
+        Ok(())
     }
 
     pub async fn compile_templates(&mut self) -> Result<JoinSet<String>> {

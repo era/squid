@@ -3,6 +3,7 @@ mod config;
 mod http;
 mod io;
 mod md;
+mod rss;
 mod template;
 mod tinylang;
 mod watch;
