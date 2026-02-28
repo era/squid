@@ -112,12 +112,7 @@ impl DependencyGraph {
     }
 
     /// Register a template and its dependencies from parsing its content.
-    pub fn register_template(
-        &mut self,
-        template_path: PathBuf,
-        content: &str,
-        base_dir: &Path,
-    ) {
+    pub fn register_template(&mut self, template_path: PathBuf, content: &str, base_dir: &Path) {
         let template_path = template_path.canonicalize().unwrap_or(template_path);
         self.all_templates.insert(template_path.clone());
 
@@ -144,8 +139,7 @@ impl DependencyGraph {
         let output_path = self.output_folder.join(output_name);
         self.standalone_outputs
             .insert(template_path.clone(), output_path.clone());
-        self.output_to_template
-            .insert(output_path, template_path);
+        self.output_to_template.insert(output_path, template_path);
     }
 
     /// Register a collection partial (produces one output per markdown in collection).
@@ -166,8 +160,10 @@ impl DependencyGraph {
         output_path: PathBuf,
     ) {
         let markdown_path = markdown_path.canonicalize().unwrap_or(markdown_path);
-        self.markdown_outputs
-            .insert(markdown_path.clone(), (collection_name.to_string(), output_path.clone()));
+        self.markdown_outputs.insert(
+            markdown_path.clone(),
+            (collection_name.to_string(), output_path.clone()),
+        );
         self.output_to_markdown
             .insert(output_path, (markdown_path, collection_name.to_string()));
     }
@@ -198,8 +194,10 @@ impl DependencyGraph {
                         outputs.insert(out.clone());
                     }
                     if let Some(coll_name) = self.partial_to_collection.get(&path) {
-                        for (_, (_, out)) in
-                            self.markdown_outputs.iter().filter(|(_, (c, _))| c == coll_name)
+                        for (_, (_, out)) in self
+                            .markdown_outputs
+                            .iter()
+                            .filter(|(_, (c, _))| c == coll_name)
                         {
                             outputs.insert(out.clone());
                         }
@@ -219,9 +217,11 @@ impl DependencyGraph {
                                     outputs.insert(out.clone());
                                 }
                                 if let Some(coll_name) = self.partial_to_collection.get(dep) {
-                                    for (_, (_, out)) in self.markdown_outputs.iter().filter(
-                                        |(_, (c, _))| c == coll_name,
-                                    ) {
+                                    for (_, (_, out)) in self
+                                        .markdown_outputs
+                                        .iter()
+                                        .filter(|(_, (c, _))| c == coll_name)
+                                    {
                                         outputs.insert(out.clone());
                                     }
                                 }

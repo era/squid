@@ -166,23 +166,26 @@ impl Website {
         let collections = self.build_markdown_collections().await?;
         let c = self.configuration.clone().unwrap(); //fixme
         let feed_config = FeedConfig {
-                title: c.website_name.clone(),
-                description: c.custom_keys
-                    .get("description")
-                    .cloned()
-                    .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
-                website_url: c.uri.clone(),
-                feed_url: format!("{}/rss.xml", c.uri),
-                author: c.custom_keys
-                    .get("author")
-                    .cloned()
-                    .unwrap_or_else(|| "Unknown Author".to_string()),
-                language: c.custom_keys
-                    .get("language")
-                    .cloned()
-                    .unwrap_or_else(|| "en-us".to_string()),
-            };
-       
+            title: c.website_name.clone(),
+            description: c
+                .custom_keys
+                .get("description")
+                .cloned()
+                .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
+            website_url: c.uri.clone(),
+            feed_url: format!("{}/rss.xml", c.uri),
+            author: c
+                .custom_keys
+                .get("author")
+                .cloned()
+                .unwrap_or_else(|| "Unknown Author".to_string()),
+            language: c
+                .custom_keys
+                .get("language")
+                .cloned()
+                .unwrap_or_else(|| "en-us".to_string()),
+        };
+
         self.cache.builder = Some(Builder::new(
             self.build_state(&collections),
             output.to_path_buf(),
@@ -221,7 +224,10 @@ impl Website {
     /// afterward to regenerate HTML.
     pub async fn rebuild_after_markdown_change(&mut self, output: &Path) -> Result<()> {
         let collections = self.build_markdown_collections().await?;
-        let c = self.configuration.as_ref().context("config required for RSS")?;
+        let c = self
+            .configuration
+            .as_ref()
+            .context("config required for RSS")?;
         let feed_config = crate::rss::FeedConfig {
             title: c.website_name.clone(),
             description: c
@@ -231,11 +237,13 @@ impl Website {
                 .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
             website_url: c.uri.clone(),
             feed_url: format!("{}/rss.xml", c.uri),
-            author: c.custom_keys
+            author: c
+                .custom_keys
                 .get("author")
                 .cloned()
                 .unwrap_or_else(|| "Unknown Author".to_string()),
-            language: c.custom_keys
+            language: c
+                .custom_keys
                 .get("language")
                 .cloned()
                 .unwrap_or_else(|| "en-us".to_string()),
@@ -304,21 +312,14 @@ impl Website {
         let output_folder = output.to_path_buf();
         let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-        let mut deps = DependencyGraph::new(
-            self.template_folder.clone(),
-            output_folder.clone(),
-        );
+        let mut deps = DependencyGraph::new(self.template_folder.clone(), output_folder.clone());
 
         let mut template_reader = LazyFolderReader::new(&self.template_folder, "template")
             .context("could not create template reader for dependency graph")?;
 
         while let Some(file) = template_reader.async_next().await {
             let file = file?;
-            deps.register_template(
-                file.path.clone(),
-                &file.contents,
-                &base_dir,
-            );
+            deps.register_template(file.path.clone(), &file.contents, &base_dir);
 
             if file.name.starts_with('_') {
                 let collection_name = &file.name[1..file.name.len() - 9];
@@ -375,21 +376,9 @@ impl Website {
             return Ok(Some(JoinSet::new()));
         }
 
-        let collections = self
-            .cache
-            .collections
-            .as_ref()
-            .context("no collections")?;
-        let state = self
-            .cache
-            .state
-            .as_ref()
-            .context("no state")?;
-        let _builder = self
-            .cache
-            .builder
-            .as_mut()
-            .context("no builder")?;
+        let collections = self.cache.collections.as_ref().context("no collections")?;
+        let state = self.cache.state.as_ref().context("no state")?;
+        let _builder = self.cache.builder.as_mut().context("no builder")?;
 
         let mut eval_tasks = JoinSet::new();
 
@@ -409,11 +398,10 @@ impl Website {
                     file_name
                 });
             } else if let Some((md_path, coll_name)) = deps.markdown_for_output(&output_path) {
-                let collection = collections.get(&coll_name).context("collection not found")?;
-                let item_name = md_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let collection = collections
+                    .get(&coll_name)
+                    .context("collection not found")?;
+                let item_name = md_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 let item = collection
                     .collection
                     .iter()

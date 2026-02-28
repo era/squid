@@ -6,7 +6,6 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 use std::process::Command;
-use std::thread::sleep;
 use std::time::Duration;
 use tempdir::TempDir;
 use tokio::signal;
@@ -139,12 +138,21 @@ async fn test_webserver() {
         .spawn()
         .unwrap();
 
-    sleep(Duration::from_millis(10));
     let client = Client::new();
+    let uri: hyper::Uri = "http://localhost:8181/index.html".parse().unwrap();
 
-    let uri = "http://localhost:8181".parse().unwrap();
+    let resp = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match client.get(uri.clone()).await {
+                Ok(r) => break r,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await
+    .context("server did not respond within 15s")
+    .unwrap();
 
-    let resp = client.get(uri).await.unwrap();
     assert_eq!(200, resp.status());
 
     kill_child(&cargo_bin.id().to_string())

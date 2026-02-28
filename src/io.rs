@@ -140,6 +140,7 @@ impl<'a> IntoIterator for &'a LazyFolderReader {
 }
 
 pub(crate) async fn write_to_disk(dir: PathBuf, file_name: &str, output: String) {
+    tokio::fs::create_dir_all(&dir).await.unwrap();
     let output_file = dir.join(file_name);
     let mut file = File::create(output_file).await.unwrap();
     file.write_all(output.as_bytes()).await.unwrap();

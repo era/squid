@@ -157,9 +157,7 @@ impl App {
         }
 
         if let Some(template_var) = self.args.template_variables.as_ref() {
-            watcher
-                .watch(template_var, FileChangeType::Config)
-                .unwrap();
+            watcher.watch(template_var, FileChangeType::Config).unwrap();
         }
 
         if let Some(static_resources) = self.args.static_resources.as_ref() {
@@ -189,10 +187,28 @@ impl App {
                 self.copy_static_files(output_folder);
             }
             FileChangeType::Markdown => {
-                if let Err(e) = website.rebuild_after_markdown_change(output_folder).await {
-                    eprintln!("Failed to rebuild after markdown change: {e}");
-                } else if let Ok(mut files_processed) = website.compile_templates().await {
-                    Self::process_website_files(&mut files_processed).await;
+                match website.rebuild_after_markdown_change(output_folder).await {
+                    Ok(()) => match website.compile_templates().await {
+                        Ok(mut files_processed) => {
+                            Self::process_website_files(&mut files_processed).await;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to compile templates after markdown change: {e}, falling back to full rebuild");
+                            if let Ok(mut files_processed) =
+                                website.build_from_scratch(output_folder).await
+                            {
+                                Self::process_website_files(&mut files_processed).await;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to rebuild after markdown change: {e}, falling back to full rebuild");
+                        if let Ok(mut files_processed) =
+                            website.build_from_scratch(output_folder).await
+                        {
+                            Self::process_website_files(&mut files_processed).await;
+                        }
+                    }
                 }
             }
             FileChangeType::Template | FileChangeType::Config => {

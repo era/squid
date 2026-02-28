@@ -47,17 +47,10 @@ impl EventHandler for WatchEventHandler {
     fn handle_event(&mut self, event: notify::Result<Event>) {
         let tx = self.tx.clone();
         let change_type = self.change_type.clone();
-        let paths = event
-            .map(|e| e.paths)
-            .unwrap_or_default();
+        let paths = event.map(|e| e.paths).unwrap_or_default();
         self.handler.spawn(async move {
             if !paths.is_empty() {
-                let _ = tx
-                    .send(FileChangeEvent {
-                        change_type,
-                        paths,
-                    })
-                    .await;
+                let _ = tx.send(FileChangeEvent { change_type, paths }).await;
             }
         });
     }
