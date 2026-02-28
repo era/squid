@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod deps;
 mod http;
 mod io;
 mod md;

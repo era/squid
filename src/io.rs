@@ -20,7 +20,7 @@ pub struct TemplateFile {
 }
 
 impl TemplateFile {
-    fn new(path: &PathBuf) -> Result<Self> {
+    pub(crate) fn new(path: &PathBuf) -> Result<Self> {
         let contents = match fs::read_to_string(path) {
             Ok(contents) => contents,
             Err(e) => return Err(e).context("could not read file"),
