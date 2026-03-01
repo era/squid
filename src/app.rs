@@ -1,4 +1,5 @@
 use crate::config::Configuration;
+use crate::deps::{FileChangeEvent, FileChangeType};
 use crate::http;
 use crate::io::copy_dir;
 use crate::template::Website;
@@ -146,53 +147,82 @@ impl App {
         let mut watcher = FolderWatcher::new(Handle::current(), tx);
 
         watcher
-            .watch(&self.args.template_folder, FolderModified::TemplatesFolder)
+            .watch(&self.args.template_folder, FileChangeType::Template)
             .unwrap();
 
         if let Some(markdown_folder) = self.args.markdown_folder.as_ref() {
             watcher
-                .watch(markdown_folder, FolderModified::MarkdownFolder)
+                .watch(markdown_folder, FileChangeType::Markdown)
                 .unwrap();
         }
 
         if let Some(template_var) = self.args.template_variables.as_ref() {
-            watcher
-                .watch(template_var, FolderModified::TemplateVariables)
-                .unwrap();
+            watcher.watch(template_var, FileChangeType::Config).unwrap();
         }
 
         if let Some(static_resources) = self.args.static_resources.as_ref() {
             watcher
-                .watch(static_resources, FolderModified::StaticFolder)
+                .watch(static_resources, FileChangeType::Static)
                 .unwrap();
         }
 
         let output_folder = Path::new(&self.args.output_folder);
 
-        while let Some(folder_modified) = rx.recv().await {
+        while let Some(change) = rx.recv().await {
             println!("Detected changes on files, rebuilding site");
-            match folder_modified {
-                FolderModified::StaticFolder => self.copy_static_files(output_folder),
-                FolderModified::MarkdownFolder => {
-                    let mut files_processed = website.compile_templates().await.unwrap();
-                    Self::process_website_files(&mut files_processed).await;
-                }
-                _ => {
-                    let mut files_processed =
-                        website.build_from_scratch(output_folder).await.unwrap();
-                    Self::process_website_files(&mut files_processed).await;
-                }
-            }
-
+            self.handle_file_change(&mut website, &change, output_folder)
+                .await;
             println!("Site rebuilt");
         }
     }
-}
 
-#[derive(Debug, Clone)]
-enum FolderModified {
-    StaticFolder,
-    MarkdownFolder,
-    TemplatesFolder,
-    TemplateVariables,
+    async fn handle_file_change(
+        &self,
+        website: &mut Website,
+        change: &FileChangeEvent,
+        output_folder: &Path,
+    ) {
+        match change.change_type {
+            FileChangeType::Static => {
+                self.copy_static_files(output_folder);
+            }
+            FileChangeType::Markdown => {
+                match website.rebuild_after_markdown_change(output_folder).await {
+                    Ok(()) => match website.compile_templates().await {
+                        Ok(mut files_processed) => {
+                            Self::process_website_files(&mut files_processed).await;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to compile templates after markdown change: {e}, falling back to full rebuild");
+                            if let Ok(mut files_processed) =
+                                website.build_from_scratch(output_folder).await
+                            {
+                                Self::process_website_files(&mut files_processed).await;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to rebuild after markdown change: {e}, falling back to full rebuild");
+                        if let Ok(mut files_processed) =
+                            website.build_from_scratch(output_folder).await
+                        {
+                            Self::process_website_files(&mut files_processed).await;
+                        }
+                    }
+                }
+            }
+            FileChangeType::Template | FileChangeType::Config => {
+                match website.build_incremental(change, output_folder).await {
+                    Ok(Some(mut files_processed)) => {
+                        Self::process_website_files(&mut files_processed).await;
+                    }
+                    Ok(None) | Err(_) => {
+                        let mut files_processed =
+                            website.build_from_scratch(output_folder).await.unwrap();
+                        Self::process_website_files(&mut files_processed).await;
+                    }
+                }
+            }
+        }
+    }
 }

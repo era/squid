@@ -20,9 +20,7 @@ Some markdown with **bold** and *italic* text.
 fn config_parse(c: &mut Criterion) {
     c.bench_function("config_parse", |b| {
         b.iter(|| {
-            black_box(
-                Configuration::from_toml("tests/config.toml").expect("config parse failed"),
-            )
+            black_box(Configuration::from_toml("tests/config.toml").expect("config parse failed"))
         })
     });
 }

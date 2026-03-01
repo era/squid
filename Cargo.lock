@@ -1605,6 +1605,7 @@ dependencies = [
  "hyper",
  "markdown",
  "notify",
+ "regex",
  "rss",
  "serde",
  "tempdir",

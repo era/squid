@@ -1,23 +1,17 @@
+use crate::deps::FileChangeEvent;
 use notify::{Error, Event, EventHandler, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::Sender;
 
-pub struct FolderWatcher<T>
-where
-    T: Clone,
-{
+pub struct FolderWatcher {
     handle: Handle,
-    tx: Sender<T>,
+    tx: Sender<FileChangeEvent>,
     watchers: Vec<RecommendedWatcher>,
 }
 
-impl<T> FolderWatcher<T>
-where
-    T: Clone,
-    WatchEventHandler<T>: EventHandler,
-{
-    pub fn new(handle: Handle, tx: Sender<T>) -> Self {
+impl FolderWatcher {
+    pub fn new(handle: Handle, tx: Sender<FileChangeEvent>) -> Self {
         Self {
             tx,
             handle,
@@ -25,9 +19,13 @@ where
         }
     }
 
-    pub fn watch(&mut self, folder: &str, variant_to_send: T) -> Result<(), Error> {
+    pub fn watch(
+        &mut self,
+        folder: &str,
+        change_type: crate::deps::FileChangeType,
+    ) -> Result<(), Error> {
         let event_handler =
-            WatchEventHandler::new(self.handle.clone(), self.tx.clone(), variant_to_send);
+            WatchEventHandler::new(self.handle.clone(), self.tx.clone(), change_type);
 
         let mut recommend_watcher =
             RecommendedWatcher::new(event_handler, notify::Config::default())?;
@@ -39,34 +37,35 @@ where
 }
 
 #[derive(Clone)]
-pub struct WatchEventHandler<T>
-where
-    T: Clone,
-{
+pub struct WatchEventHandler {
     handler: Handle,
-    variant: T,
-    tx: Sender<T>,
+    change_type: crate::deps::FileChangeType,
+    tx: Sender<FileChangeEvent>,
 }
 
-impl<T> EventHandler for WatchEventHandler<T>
-where
-    T: Send + 'static + Clone + Sync,
-{
-    fn handle_event(&mut self, _event: notify::Result<Event>) {
+impl EventHandler for WatchEventHandler {
+    fn handle_event(&mut self, event: notify::Result<Event>) {
         let tx = self.tx.clone();
-        let value = self.variant.clone();
-        self.handler.spawn(async move { tx.send(value).await });
+        let change_type = self.change_type.clone();
+        let paths = event.map(|e| e.paths).unwrap_or_default();
+        self.handler.spawn(async move {
+            if !paths.is_empty() {
+                let _ = tx.send(FileChangeEvent { change_type, paths }).await;
+            }
+        });
     }
 }
-impl<T> WatchEventHandler<T>
-where
-    T: Clone,
-{
-    pub fn new(handler: Handle, tx: Sender<T>, variant: T) -> Self {
+
+impl WatchEventHandler {
+    pub fn new(
+        handler: Handle,
+        tx: Sender<FileChangeEvent>,
+        change_type: crate::deps::FileChangeType,
+    ) -> Self {
         Self {
             handler,
             tx,
-            variant,
+            change_type,
         }
     }
 }

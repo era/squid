@@ -1,4 +1,5 @@
 use crate::config::Configuration;
+use crate::deps::{DependencyGraph, FileChangeEvent};
 use crate::io;
 use crate::io::{LazyFolderReader, TemplateFile};
 use crate::rss::*;
@@ -137,6 +138,7 @@ struct WebsiteCachedState {
     collections: Option<HashMap<String, MarkdownCollection>>,
     state: Option<State>,
     builder: Option<Builder>,
+    deps: Option<DependencyGraph>,
 }
 
 pub struct Website {
@@ -164,23 +166,26 @@ impl Website {
         let collections = self.build_markdown_collections().await?;
         let c = self.configuration.clone().unwrap(); //fixme
         let feed_config = FeedConfig {
-                title: c.website_name.clone(),
-                description: c.custom_keys
-                    .get("description")
-                    .cloned()
-                    .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
-                website_url: c.uri.clone(),
-                feed_url: format!("{}/rss.xml", c.uri),
-                author: c.custom_keys
-                    .get("author")
-                    .cloned()
-                    .unwrap_or_else(|| "Unknown Author".to_string()),
-                language: c.custom_keys
-                    .get("language")
-                    .cloned()
-                    .unwrap_or_else(|| "en-us".to_string()),
-            };
-       
+            title: c.website_name.clone(),
+            description: c
+                .custom_keys
+                .get("description")
+                .cloned()
+                .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
+            website_url: c.uri.clone(),
+            feed_url: format!("{}/rss.xml", c.uri),
+            author: c
+                .custom_keys
+                .get("author")
+                .cloned()
+                .unwrap_or_else(|| "Unknown Author".to_string()),
+            language: c
+                .custom_keys
+                .get("language")
+                .cloned()
+                .unwrap_or_else(|| "en-us".to_string()),
+        };
+
         self.cache.builder = Some(Builder::new(
             self.build_state(&collections),
             output.to_path_buf(),
@@ -215,6 +220,50 @@ impl Website {
         Ok(())
     }
 
+    /// Rebuild collections and RSS after markdown files change. Call compile_templates
+    /// afterward to regenerate HTML.
+    pub async fn rebuild_after_markdown_change(&mut self, output: &Path) -> Result<()> {
+        let collections = self.build_markdown_collections().await?;
+        let c = self
+            .configuration
+            .as_ref()
+            .context("config required for RSS")?;
+        let feed_config = crate::rss::FeedConfig {
+            title: c.website_name.clone(),
+            description: c
+                .custom_keys
+                .get("description")
+                .cloned()
+                .unwrap_or_else(|| format!("Latest posts from {}", c.website_name)),
+            website_url: c.uri.clone(),
+            feed_url: format!("{}/rss.xml", c.uri),
+            author: c
+                .custom_keys
+                .get("author")
+                .cloned()
+                .unwrap_or_else(|| "Unknown Author".to_string()),
+            language: c
+                .custom_keys
+                .get("language")
+                .cloned()
+                .unwrap_or_else(|| "en-us".to_string()),
+        };
+        self.cache.builder = Some(Builder::new(
+            self.build_state(&collections),
+            output.to_path_buf(),
+        ));
+        let all_posts: Vec<_> = collections
+            .values()
+            .flat_map(|c| {
+                c.collection
+                    .iter()
+                    .filter_map(|d| d.to_post_metadata(&feed_config.website_url).ok())
+            })
+            .collect();
+        generate_rss(&feed_config, &all_posts, output).context("Failed to generate RSS")?;
+        Ok(())
+    }
+
     pub async fn compile_templates(&mut self) -> Result<JoinSet<String>> {
         let mut template_folder_reader =
             LazyFolderReader::new(&self.template_folder, "template")
@@ -233,14 +282,152 @@ impl Website {
             )
             .await;
 
-        Ok(self
+        let output_folder = self
+            .cache
+            .builder
+            .as_ref()
+            .context("compile_templates called without caching builder")?
+            .output_folder
+            .clone();
+        let result = Ok(self
             .cache
             .builder
             .as_mut()
             .context("compile_templates called without caching builder")?
             .eval_tasks
             .take()
-            .unwrap())
+            .unwrap());
+        self.build_dependency_graph(&output_folder).await?;
+        result
+    }
+
+    /// Build the dependency graph for incremental builds. Must be called after
+    /// compile_templates when collections and builder are populated.
+    async fn build_dependency_graph(&mut self, output: &Path) -> Result<()> {
+        let collections = self
+            .cache
+            .collections
+            .as_ref()
+            .context("build_dependency_graph called without collections")?;
+        let output_folder = output.to_path_buf();
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+        let mut deps = DependencyGraph::new(self.template_folder.clone(), output_folder.clone());
+
+        let mut template_reader = LazyFolderReader::new(&self.template_folder, "template")
+            .context("could not create template reader for dependency graph")?;
+
+        while let Some(file) = template_reader.async_next().await {
+            let file = file?;
+            deps.register_template(file.path.clone(), &file.contents, &base_dir);
+
+            if file.name.starts_with('_') {
+                let collection_name = &file.name[1..file.name.len() - 9];
+                if collections.contains_key(collection_name) {
+                    deps.register_collection_partial(collection_name, file.path.clone());
+                }
+            } else {
+                let output_name = file.name.replace(".template", ".html");
+                deps.register_standalone(file.path.clone(), &output_name);
+            }
+        }
+
+        for (collection_name, collection) in collections {
+            let output_dir = output_folder.join(
+                collection
+                    .relative_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .as_ref(),
+            );
+            for item in &collection.collection {
+                let md_path = collection.relative_path.join(&item.name);
+                let output_name = item.name.replace(".md", ".html");
+                let output_path = output_dir.join(&output_name);
+                deps.register_markdown_output(md_path, collection_name, output_path);
+            }
+        }
+
+        self.cache.deps = Some(deps);
+        Ok(())
+    }
+
+    /// Incrementally rebuild only the outputs affected by the given file change.
+    /// Returns None if a full rebuild is required (e.g. config change).
+    pub async fn build_incremental(
+        &mut self,
+        change: &FileChangeEvent,
+        _output: &Path,
+    ) -> Result<Option<JoinSet<String>>> {
+        let deps = self.cache.deps.as_ref().context("no dependency graph")?;
+
+        if deps.requires_full_rebuild(change) {
+            return Ok(None);
+        }
+
+        if deps.is_static_change(change) {
+            return Ok(Some(JoinSet::new()));
+        }
+
+        let affected = deps.affected_outputs(change);
+
+        if affected.is_empty() {
+            return Ok(Some(JoinSet::new()));
+        }
+
+        let collections = self.cache.collections.as_ref().context("no collections")?;
+        let state = self.cache.state.as_ref().context("no state")?;
+        let _builder = self.cache.builder.as_mut().context("no builder")?;
+
+        let mut eval_tasks = JoinSet::new();
+
+        for output_path in affected {
+            if let Some(template_path) = deps.template_for_output(&output_path) {
+                let template = TemplateFile::new(&template_path)?;
+                let output_folder = output_path.parent().unwrap().to_path_buf();
+                let file_name = output_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let state = state.clone();
+                eval_tasks.spawn(async move {
+                    let html = eval(&template.contents, state).unwrap();
+                    io::write_to_disk(output_folder, &file_name, html).await;
+                    file_name
+                });
+            } else if let Some((md_path, coll_name)) = deps.markdown_for_output(&output_path) {
+                let collection = collections
+                    .get(&coll_name)
+                    .context("collection not found")?;
+                let item_name = md_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let item = collection
+                    .collection
+                    .iter()
+                    .find(|i| i.name == item_name)
+                    .context("markdown item not found")?;
+                let partial_path = deps
+                    .partial_for_collection(&coll_name)
+                    .context("partial not found")?;
+                let template = TemplateFile::new(&partial_path)?;
+                let output_folder = output_path.parent().unwrap().to_path_buf();
+                let file_name = output_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let mut state = state.clone();
+                state.insert("content".into(), item.as_tinylang_state().into());
+                eval_tasks.spawn(async move {
+                    let html = eval(&template.contents, state).unwrap();
+                    io::write_to_disk(output_folder, &file_name, html).await;
+                    file_name
+                });
+            }
+        }
+
+        Ok(Some(eval_tasks))
     }
 
     pub async fn build_markdown_collections(
