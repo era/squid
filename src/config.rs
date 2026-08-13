@@ -19,6 +19,11 @@ pub struct Configuration {
     /// posts/my-post/index.html) instead of /posts/my-post.html
     #[serde(default)]
     pub pretty_urls: bool,
+    /// folder holding the site content (markdown and typst files). Used by
+    /// `squid new` to place new posts, and as a fallback for the build when
+    /// --markdown-folder is not passed
+    #[serde(default)]
+    pub markdown_folder: Option<String>,
 }
 
 impl Configuration {
@@ -92,6 +97,37 @@ mod tests {
         writeln!(file, "{}", content).unwrap();
         let config = Configuration::from_toml(file_path.to_str().unwrap()).unwrap();
         assert_eq!(config.posts_per_page, Some(10));
+    }
+
+    #[test]
+    fn test_from_toml_markdown_folder() {
+        let content = r#"
+        website_name = "site"
+        uri = "https://example.com"
+        markdown_folder = "content/posts"
+        [custom_keys]
+        "#;
+        let tempdir = TempDir::new("toml").unwrap();
+        let file_path = tempdir.into_path().join("config.toml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "{}", content).unwrap();
+        let config = Configuration::from_toml(file_path.to_str().unwrap()).unwrap();
+        assert_eq!(config.markdown_folder.as_deref(), Some("content/posts"));
+    }
+
+    #[test]
+    fn test_from_toml_markdown_folder_defaults_to_none() {
+        let content = r#"
+        website_name = "site"
+        uri = "https://example.com"
+        [custom_keys]
+        "#;
+        let tempdir = TempDir::new("toml").unwrap();
+        let file_path = tempdir.into_path().join("config.toml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "{}", content).unwrap();
+        let config = Configuration::from_toml(file_path.to_str().unwrap()).unwrap();
+        assert_eq!(config.markdown_folder, None);
     }
 
     #[test]

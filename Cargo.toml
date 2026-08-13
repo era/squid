@@ -12,6 +12,7 @@ anyhow = "1.0.70"
 chrono = "0.4.42"
 clap = { version = "4.2.4", features = ["derive"] }
 env_logger = "0.10.0"
+fontdb = { version = "0.23", default-features = false, features = ["fs"] }
 gray_matter = "0.2.6"
 html2text = "0.16.5"
 hyper = { version = "0.14.26", features = ["server", "http1", "tcp"] }
@@ -27,6 +28,8 @@ tokio = { version = "1.27.0", features = ["full"] }
 toml = "0.7.3"
 tower = { version = "0.4.0", features = ["make", "util"] }
 tower-http = { version = "0.4.0", features = ["fs"] }
+typst = "0.15.1"
+typst-html = "0.15.1"
 
 [dev-dependencies]
 assert_cmd = "2.0.11"

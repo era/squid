@@ -3,6 +3,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use gray_matter::engine::YAML;
 use gray_matter::Matter;
+use gray_matter::Pod;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tinylang::types::{State, TinyLangType};
@@ -152,13 +153,30 @@ fn to_html(content: &str) -> String {
 impl MarkdownDocument {
     pub fn new(content: &str, name: String, partial_uri: String) -> Result<Self> {
         let matter = Matter::<YAML>::new();
-        let header = matter.parse(content);
-        let html_content = to_html(&header.content);
+        let parsed = matter.parse(content);
+        Self::from_parts(parsed.data, to_html(&parsed.content), name, partial_uri)
+    }
 
+    /// Builds a document from a Typst source file: the same YAML frontmatter
+    /// is parsed for metadata (title, date, tags, draft), and the remaining
+    /// content is rendered to HTML by the Typst engine.
+    pub async fn from_typst(content: &str, name: String, partial_uri: String) -> Result<Self> {
+        let matter = Matter::<YAML>::new();
+        let parsed = matter.parse(content);
+        let html_content = crate::typst::compile(&parsed.content).await?;
+        Self::from_parts(parsed.data, html_content, name, partial_uri)
+    }
+
+    fn from_parts(
+        data: Option<Pod>,
+        html_content: String,
+        name: String,
+        partial_uri: String,
+    ) -> Result<Self> {
         // Deserialize into JSON values first: frontmatter like `draft: true`
         // or `weight: 3` is a YAML bool/number and would fail a direct
         // HashMap<String, String> deserialization, rejecting the whole file.
-        let header: HashMap<String, String> = match header.data {
+        let header: HashMap<String, String> = match data {
             Some(d) => {
                 let raw: HashMap<String, serde_json::Value> = d.deserialize()?;
                 raw.into_iter()

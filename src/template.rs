@@ -98,9 +98,16 @@ fn output_file_name(base_name: &str, pretty: bool) -> String {
     }
 }
 
-/// Output file name for a markdown source file ("hello.md").
-fn md_output_name(name: &str, pretty: bool) -> String {
-    output_file_name(name.strip_suffix(".md").unwrap_or(name), pretty)
+/// Strip the content file extension (".md" or ".typ") from a file name.
+fn strip_content_ext(name: &str) -> &str {
+    name.strip_suffix(".md")
+        .or_else(|| name.strip_suffix(".typ"))
+        .unwrap_or(name)
+}
+
+/// Output file name for a content source file ("hello.md" or "hello.typ").
+fn content_output_name(name: &str, pretty: bool) -> String {
+    output_file_name(strip_content_ext(name), pretty)
 }
 
 fn page_base_name(base_name: &str, page: usize) -> String {
@@ -358,7 +365,7 @@ impl Builder {
                         .map_err(|e| anyhow::anyhow!("template evaluation failed: {e}"))?;
 
                     // we need to save our file following the markdown file and not the template
-                    let file_name = md_output_name(&item.name, pretty);
+                    let file_name = content_output_name(&item.name, pretty);
 
                     io::write_to_disk(output_folder, &file_name, html).await?;
                     Ok(file_name)
@@ -797,7 +804,7 @@ impl Website {
             );
             for item in &collection.collection {
                 let md_path = collection.relative_path.join(&item.name);
-                let output_name = md_output_name(&item.name, self.pretty_urls());
+                let output_name = content_output_name(&item.name, self.pretty_urls());
                 let output_path = output_dir.join(&output_name);
                 deps.register_markdown_output(md_path, collection_name, output_path);
             }
@@ -971,8 +978,11 @@ impl Website {
             }
         }
 
-        let mut markdown_folder_reader = io::LazyFolderReader::new(posts_folder, "md")
-            .context("could not create lazy folder reader for markdown folder")?;
+        let mut markdown_folder_reader = io::LazyFolderReader::new_with_extensions(
+            posts_folder,
+            &["md", "typ"],
+        )
+        .context("could not create lazy folder reader for markdown folder")?;
 
         while let Some(file) = markdown_folder_reader.async_next().await {
             let file = match file {
@@ -984,15 +994,22 @@ impl Website {
                 }
             };
 
-            let mut markdown_content = match MarkdownDocument::new(
-                &file.contents,
-                file.name,
-                self.partial_uri(&file.path),
-            ) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("{}", e);
-                    continue;
+            let partial_uri = self.partial_uri(&file.path);
+            let mut markdown_content = if file.name.ends_with(".typ") {
+                match MarkdownDocument::from_typst(&file.contents, file.name, partial_uri).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("failed to process typst file '{}': {e:#}", file.path.display());
+                        continue;
+                    }
+                }
+            } else {
+                match MarkdownDocument::new(&file.contents, file.name, partial_uri) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        continue;
+                    }
                 }
             };
             markdown_content.highlight_code(self.code_theme());
@@ -1055,10 +1072,11 @@ impl Website {
             .and_then(|folder| path.strip_prefix(folder).ok())
             .unwrap_or(path);
         let relative = relative.to_string_lossy();
+        let stem = strip_content_ext(&relative);
         let uri = if self.pretty_urls() {
-            format!("{}/", relative.strip_suffix(".md").unwrap_or(&relative))
+            format!("{stem}/")
         } else {
-            swap_suffix(&relative, ".md", ".html")
+            format!("{stem}.html")
         };
         format!("/{}", uri.trim_start_matches('/'))
     }
@@ -1153,8 +1171,10 @@ mod tests {
         assert_eq!(output_file_name("about", false), "about.html");
         assert_eq!(output_file_name("about", true), "about/index.html");
         assert_eq!(output_file_name("index", true), "index.html");
-        assert_eq!(md_output_name("hello.md", true), "hello/index.html");
-        assert_eq!(md_output_name("hello.md", false), "hello.html");
+        assert_eq!(content_output_name("hello.md", true), "hello/index.html");
+        assert_eq!(content_output_name("hello.md", false), "hello.html");
+        assert_eq!(content_output_name("hello.typ", true), "hello/index.html");
+        assert_eq!(content_output_name("hello.typ", false), "hello.html");
     }
 
     #[test]
@@ -1233,6 +1253,7 @@ mod tests {
             posts_per_page: None,
             code_theme: None,
             pretty_urls: true,
+            markdown_folder: None,
         };
         let website = Website::new(
             Some(config),

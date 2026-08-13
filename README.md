@@ -5,6 +5,7 @@ Squid is a static website generator written in Rust that uses the template langu
 ## Features
 
 - **GitHub Flavored Markdown** — tables, strikethrough, footnotes, task lists, and raw HTML pass-through
+- **Typst** — `.typ` files are compiled to HTML alongside markdown, same YAML frontmatter
 - **Syntax highlighting** for fenced code blocks (configurable theme, no extra CSS needed)
 - **Collections** — every folder of markdown files becomes a collection rendered by its `_<name>.template`
 - **Tags** — declare `tags: rust, web` in frontmatter; a `_tag.template` generates `/tags/<slug>.html` pages, and every template can read the global `tags` list
@@ -85,6 +86,12 @@ squid new posts my-post-title
 
 This creates `my-post-title.md` inside the `posts` subfolder of your markdown directory.
 
+Pass `--typst` to scaffold a `.typ` file instead:
+
+```sh
+squid new posts my-post-title --typst
+```
+
 To preview your site locally with live reload (drafts included):
 
 ```sh
@@ -99,6 +106,7 @@ website_name = "My Website"
 uri = "https://example.com"
 
 # optional
+markdown_folder = "markdown"  # content folder; falls back to --markdown-folder if unset
 pretty_urls = true            # /posts/my-post/ instead of /posts/my-post.html
 posts_per_page = 10           # paginate listings
 code_theme = "InspiredGitHub" # syntax highlighting theme, "none" disables
@@ -122,6 +130,28 @@ draft: true                 # excluded from builds unless --drafts
 excerpt: Short description  # used in the RSS feed
 ---
 ```
+
+## Typst
+
+Any `.typ` file in the markdown folder is compiled to HTML with the same YAML
+frontmatter as markdown posts (`title`, `date`, `tags`, `draft`, `excerpt`).
+The frontmatter block is stripped before compiling; everything after it is
+Typst markup:
+
+```
+---
+title: My Typst Post
+date: 2024-01-10
+---
+= My Typst Post
+
+Body text, $ E = m c^2 $ math, and everything else Typst supports.
+```
+
+`.typ` and `.md` files can be mixed freely within the same collection.
+Compilation runs in-process (no external `typst` binary required) and only
+supports a single self-contained file — `#include` and image files are not
+resolved.
 
 ## Contributing
 

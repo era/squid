@@ -8,7 +8,7 @@ use anyhow::Result;
 use chrono::Local;
 use clap::{Parser, Subcommand};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use tokio::runtime::Handle;
 use tokio::signal;
@@ -25,6 +25,9 @@ enum Commands {
         folder: String,
         /// File name without extension
         name: String,
+        /// Create a Typst (.typ) file instead of markdown
+        #[arg(long)]
+        typst: bool,
     },
 }
 
@@ -83,8 +86,13 @@ impl App {
                 Self::init_website();
                 return;
             }
-            Some(Commands::New { folder, name }) => {
-                Self::create_new_file(self.args.markdown_folder.as_deref(), folder, name);
+            Some(Commands::New {
+                folder,
+                name,
+                typst,
+            }) => {
+                let markdown_folder = self.resolve_markdown_folder();
+                Self::create_new_file(markdown_folder.as_deref(), folder, name, *typst);
                 return;
             }
             None => {}
@@ -138,6 +146,29 @@ impl App {
         }
     }
 
+    /// Loads the configuration file passed with --template-variables, if any.
+    fn configuration(&self) -> Result<Option<Configuration>> {
+        match &self.args.template_variables {
+            Some(path) => Configuration::from_toml(path).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// The folder that holds the site content. An explicit --markdown-folder
+    /// wins; otherwise the `markdown_folder` key of the config file (passed
+    /// via --template-variables) is used; otherwise paths are relative to the
+    /// current directory.
+    fn resolve_markdown_folder(&self) -> Option<PathBuf> {
+        if let Some(folder) = self.args.markdown_folder.as_ref() {
+            return Some(Path::new(folder).to_path_buf());
+        }
+        self.configuration()
+            .ok()
+            .flatten()
+            .and_then(|c| c.markdown_folder)
+            .map(PathBuf::from)
+    }
+
     async fn build_website(&self, template_folder: &str, output_folder: &Path) -> Result<Website> {
         let template_folder = Path::new(template_folder);
 
@@ -179,6 +210,10 @@ impl App {
                 "config.toml",
                 r#"website_name = "My Website"
 uri = "https://example.com"
+
+# folder holding the site content (used by `squid new` and as a fallback
+# when --markdown-folder is not passed)
+markdown_folder = "markdown"
 
 # directory-style urls (/posts/my-post/ instead of /posts/my-post.html)
 # pretty_urls = true
@@ -284,9 +319,9 @@ language = "en-us"
         );
     }
 
-    fn create_new_file(markdown_folder: Option<&str>, folder: &str, name: &str) {
+    fn create_new_file(markdown_folder: Option<&Path>, folder: &str, name: &str, typst: bool) {
         let dir = match markdown_folder {
-            Some(base) => Path::new(base).join(folder),
+            Some(base) => base.join(folder),
             None => Path::new(folder).to_path_buf(),
         };
         if let Err(e) = fs::create_dir_all(&dir) {
@@ -294,7 +329,8 @@ language = "en-us"
             exit(1);
         }
 
-        let file_path = dir.join(format!("{name}.md"));
+        let extension = if typst { "typ" } else { "md" };
+        let file_path = dir.join(format!("{name}.{extension}"));
         if file_path.exists() {
             eprintln!("File '{}' already exists", file_path.display());
             exit(1);
@@ -302,7 +338,13 @@ language = "en-us"
 
         let title = name.replace('-', " ");
         let date = Local::now().format("%Y-%m-%d");
-        let content = format!("---\ntitle: {title}\ndate: {date}\n---\n");
+        let content = if typst {
+            format!(
+                "---\ntitle: {title}\ndate: {date}\n---\n\n= {title}\n\nWrite your post here.\n"
+            )
+        } else {
+            format!("---\ntitle: {title}\ndate: {date}\n---\n")
+        };
 
         if let Err(e) = fs::write(&file_path, content) {
             eprintln!("Failed to write '{}': {e}", file_path.display());

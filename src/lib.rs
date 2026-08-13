@@ -10,6 +10,7 @@ mod sitemap;
 mod tags;
 mod template;
 mod tinylang;
+mod typst;
 mod watch;
 
 pub use app::App;

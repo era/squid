@@ -74,9 +74,15 @@ impl Iterator for LazyFolderReader {
 
 impl LazyFolderReader {
     pub fn new(dir: &Path, extension: &str) -> Result<Self> {
+        Self::new_with_extensions(dir, &[extension])
+    }
+
+    /// Like [`LazyFolderReader::new`], but accepts any of the given
+    /// extensions.
+    pub fn new_with_extensions(dir: &Path, extensions: &[&str]) -> Result<Self> {
         let paths = fs::read_dir(dir).context("could not read the folder")?;
 
-        let files = Self::scan(paths, extension)?;
+        let files = Self::scan(paths, extensions)?;
 
         Ok(Self { files })
     }
@@ -90,7 +96,7 @@ impl LazyFolderReader {
         Some(TemplateFile::new(&current))
     }
 
-    fn scan(paths: ReadDir, extension: &str) -> Result<Vec<PathBuf>> {
+    fn scan(paths: ReadDir, extensions: &[&str]) -> Result<Vec<PathBuf>> {
         let paths: Vec<PathBuf> = paths
             .map(|entry| entry.map(|e| e.path()))
             .collect::<std::io::Result<Vec<_>>>()
@@ -100,11 +106,9 @@ impl LazyFolderReader {
             .iter()
             .filter(|path| path.is_file())
             .filter(|path| {
-                if let Some(e) = path.extension() {
-                    e.eq(extension)
-                } else {
-                    false
-                }
+                path.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| extensions.contains(&e))
             })
             .cloned()
             .collect();
@@ -115,7 +119,7 @@ impl LazyFolderReader {
             .filter_map(|dir| {
                 fs::read_dir(&dir)
                     .ok()
-                    .and_then(|rd| Self::scan(rd, extension).ok())
+                    .and_then(|rd| Self::scan(rd, extensions).ok())
             })
             .flatten()
             .collect();
